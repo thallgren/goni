@@ -1,17 +1,13 @@
 package goni
 
-import "github.com/lyraproj/goni/node"
+type ScanEnvironment interface {
+	UnknownEscapeWarning(s string)
 
-type ScanEnvironment struct {
+	CloseBracketWithoutEscapeWarning(s string)
 
-}
+	CcDuplicateWarning()
 
-func (s *ScanEnvironment) NumMem() int {
-	// TODO:
-	return 0
-}
+	MemNodes() []Node
 
-func (s *ScanEnvironment) MemNodes() []*node.Enclose {
-
-
+	NumMem() int
 }

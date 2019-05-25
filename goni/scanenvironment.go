@@ -5,9 +5,13 @@ type ScanEnvironment interface {
 
 	CloseBracketWithoutEscapeWarning(s string)
 
-	CcDuplicateWarning()
+	CCDuplicateWarning()
+
+	Encoding() Encoding
 
 	MemNodes() []Node
 
 	NumMem() int
+
+	Syntax() *Syntax
 }

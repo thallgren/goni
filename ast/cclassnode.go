@@ -1,9 +1,12 @@
 package ast
 
 import (
+	"github.com/lyraproj/goni/err"
 	"github.com/lyraproj/goni/goni"
+	"github.com/lyraproj/goni/goni/character"
 	"github.com/lyraproj/goni/goni/coderange"
 	"github.com/lyraproj/goni/goni/node"
+	"github.com/lyraproj/goni/goni/syntax"
 	"github.com/lyraproj/goni/util"
 )
 
@@ -16,75 +19,75 @@ type CClassNode struct {
 	mbuf  *coderange.Buffer
 }
 
-func (c *CClassNode) String() string {
-	goni.String(c)
+func (cn *CClassNode) String() string {
+	return goni.String(cn)
 }
 
-func (c *CClassNode) AppendTo(w *util.Indenter) {
+func (cn *CClassNode) AppendTo(w *util.Indenter) {
 	w.NewLine()
 	w.Append(`flags: `)
-	c.appendFlags(w)
+	cn.appendFlags(w)
 	w.NewLine()
 	w.Append(`bs:`)
-	c.bs.AppendTo(w.Indent())
-	if c.mbuf != nil {
+	cn.bs.AppendTo(w.Indent())
+	if cn.mbuf != nil {
 		w.NewLine()
 		w.Append(`mbuf: `)
-		c.mbuf.AppendTo(w.Indent())
+		cn.mbuf.AppendTo(w.Indent())
 	}
 }
 
-func (c *CClassNode) Name() string {
+func (cn *CClassNode) Name() string {
 	return `Character Class`
 }
 
-func NewCClass() *CClassNode {
+func NewCClassNode() *CClassNode {
 	return &CClassNode{abstractNode: abstractNode{nodeType: node.CClass}, bs: goni.NewBitSet()}
 }
 
-func (c *CClassNode) Clear() {
-	c.bs.ClearAll()
-	c.flags = 0
-	c.mbuf = nil
+func (cn *CClassNode) Clear() {
+	cn.bs.ClearAll()
+	cn.flags = 0
+	cn.mbuf = nil
 }
 
-func (c *CClassNode) isEmpty() bool {
-	return c.mbuf == nil && c.bs.IsEmpty()
+func (cn *CClassNode) isEmpty() bool {
+	return cn.mbuf == nil && cn.bs.IsEmpty()
 }
 
-func (c *CClassNode) isNot() bool {
-	return (c.flags & flagNcCClassNot) != 0
+func (cn *CClassNode) isNot() bool {
+	return (cn.flags & flagNcCClassNot) != 0
 }
 
-func (c *CClassNode) clearNot() {
-	c.flags &= ^flagNcCClassNot
+func (cn *CClassNode) clearNot() {
+	cn.flags &= ^flagNcCClassNot
 }
 
-func (c *CClassNode) appendFlags(w *util.Indenter) {
-	if c.isNot() {
+func (cn *CClassNode) appendFlags(w *util.Indenter) {
+	if cn.isNot() {
 		w.Append(`NOT`)
 	}
 }
 
-func (c *CClassNode) addCodeRangeToBuf(env goni.ScanEnvironment, from, to int, checkDup bool) {
-	c.mbuf = coderange.AddToBuffer(c.mbuf, env, from, to, checkDup)
+func (cn *CClassNode) addCodeRangeToBuf(env goni.ScanEnvironment, from, to int, checkDup bool) {
+	cn.mbuf = coderange.AddToBuffer(cn.mbuf, env, from, to, checkDup)
 }
 
-func (c *CClassNode) addCodeRange(env goni.ScanEnvironment, from, to int, checkDup bool) {
-	c.mbuf = coderange.Add(c.mbuf, env, from, to, checkDup)
+func (cn *CClassNode) addCodeRange(env goni.ScanEnvironment, from, to int, checkDup bool) {
+	cn.mbuf = coderange.Add(cn.mbuf, env, from, to, checkDup)
 }
 
-func (c *CClassNode) addAllMultiByteRange(env goni.ScanEnvironment) {
-	c.mbuf = coderange.AddAllMultiByte(env, c.mbuf)
+func (cn *CClassNode) addAllMultiByteRange(env goni.ScanEnvironment) {
+	cn.mbuf = coderange.AddAllMultiByte(env, cn.mbuf)
 }
 
-func (c *CClassNode) clearNotFlag(env goni.ScanEnvironment) {
-	if c.isNot() {
-		c.bs.InvertAll()
+func (cn *CClassNode) clearNotFlag(env goni.ScanEnvironment) {
+	if cn.isNot() {
+		cn.bs.InvertAll()
 		if !env.Encoding().IsSingleByte() {
-			c.mbuf = coderange.NotBuffer(env, c.mbuf)
+			cn.mbuf = coderange.NotBuffer(env, cn.mbuf)
 		}
-		c.clearNot()
+		cn.clearNot()
 	}
 }
 
@@ -95,8 +98,8 @@ func (cn *CClassNode) isOneChar() int {
 	c := -1
 	if cn.mbuf != nil {
 		rng := cn.mbuf.Range()
-		c := (uint)(rng[1])
-		if rng[0] == 1 && c == (uint)(rng[2]) {
+		c = rng[1]
+		if rng[0] == 1 && c == rng[2] {
 			if c < goni.SingleByteSize && cn.bs.At(c) {
 				c = -1
 			}
@@ -118,402 +121,421 @@ func (cn *CClassNode) isOneChar() int {
 	return c
 }
 
-var x = `
-    // and_cclass
-    public void and(CClassNode other, ScanEnvironment env) {
-        boolean not1 = isNot();
-        BitSet bsr1 = bs;
-        Buffer buf1 = mbuf;
-        boolean not2 = other.isNot();
-        BitSet bsr2 = other.bs;
-        Buffer buf2 = other.mbuf;
+func (cn *CClassNode) and(other *CClassNode, env goni.ScanEnvironment) {
+	not1 := cn.isNot()
+	bsr1 := cn.bs
+	buf1 := cn.mbuf
+	not2 := other.isNot()
+	bsr2 := other.bs
+	buf2 := other.mbuf
 
-        if (not1) {
-            BitSet bs1 = new BitSet();
-            bsr1.invertTo(bs1);
-            bsr1 = bs1;
-        }
+	if not1 {
+		bs1 := goni.NewBitSet()
+		bsr1.InvertTo(bs1)
+		bsr1 = bs1
+	}
 
-        if (not2) {
-            BitSet bs2 = new BitSet();
-            bsr2.invertTo(bs2);
-            bsr2 = bs2;
-        }
+	if not2 {
+		bs2 := goni.NewBitSet()
+		bsr2.InvertTo(bs2)
+		bsr2 = bs2
+	}
 
-        bsr1.and(bsr2);
+	bsr1.And(bsr2)
 
-        if (bsr1 != bs) {
-            bs.copy(bsr1);
-            bsr1 = bs;
-        }
+	if bsr1 != cn.bs {
+		cn.bs.Copy(bsr1)
+	}
 
-        if (not1) {
-            bs.invert();
-        }
+	if not1 {
+		cn.bs.InvertAll()
+	}
 
-        Buffer pbuf = null;
+	if !env.Encoding().IsSingleByte() {
+		var pbuf *coderange.Buffer
+		if not1 && not2 {
+			pbuf = coderange.OrBuffer(env, buf1, false, buf2, false)
+		} else {
+			pbuf = coderange.AndBuffer(buf1, not1, buf2, not2, env)
 
-        if (!env.enc.isSingleByte()) {
-            if (not1 && not2) {
-                pbuf = Buffer.orCodeRangeBuff(env, buf1, false, buf2, false);
-            } else {
-                pbuf = Buffer.andCodeRangeBuff(buf1, not1, buf2, not2, env);
-
-                if (not1) {
-                    pbuf = Buffer.notCodeRangeBuff(env, pbuf);
-                }
-            }
-            mbuf = pbuf;
-        }
-
-    }
-
-    // or_cclass
-    public void or(CClassNode other, ScanEnvironment env) {
-        boolean not1 = isNot();
-        BitSet bsr1 = bs;
-        Buffer buf1 = mbuf;
-        boolean not2 = other.isNot();
-        BitSet bsr2 = other.bs;
-        Buffer buf2 = other.mbuf;
-
-        if (not1) {
-            BitSet bs1 = new BitSet();
-            bsr1.invertTo(bs1);
-            bsr1 = bs1;
-        }
-
-        if (not2) {
-            BitSet bs2 = new BitSet();
-            bsr2.invertTo(bs2);
-            bsr2 = bs2;
-        }
-
-        bsr1.or(bsr2);
-
-        if (bsr1 != bs) {
-            bs.copy(bsr1);
-            bsr1 = bs;
-        }
-
-        if (not1) {
-            bs.invert();
-        }
-
-        if (!env.enc.isSingleByte()) {
-            Buffer pbuf = null;
-            if (not1 && not2) {
-                pbuf = Buffer.andCodeRangeBuff(buf1, false, buf2, false, env);
-            } else {
-                pbuf = Buffer.orCodeRangeBuff(env, buf1, not1, buf2, not2);
-                if (not1) {
-                    pbuf = Buffer.notCodeRangeBuff(env, pbuf);
-                }
-            }
-            mbuf = pbuf;
-        }
-    }
-
-    // add_ctype_to_cc_by_range // Encoding out!
-    public void addCTypeByRange(int ctype, boolean not, ScanEnvironment env, int sbOut, int mbr[]) {
-        int n = mbr[0];
-        int i;
-
-        if (!not) {
-            for (i=0; i<n; i++) {
-                for (int j=CR_FROM(mbr, i); j<=CR_TO(mbr, i); j++) {
-                    if (j >= sbOut) {
-                        if (j > CR_FROM(mbr, i)) {
-                            addCodeRangeToBuf(env, j, CR_TO(mbr, i));
-                            i++;
-                        }
-                        // !goto sb_end!, remove duplication!
-                        for (; i<n; i++) {
-                            addCodeRangeToBuf(env, CR_FROM(mbr, i), CR_TO(mbr, i));
-                        }
-                        return;
-                    }
-                    bs.set(env, j);
-                }
-            }
-            // !sb_end:!
-            for (; i<n; i++) {
-                addCodeRangeToBuf(env, CR_FROM(mbr, i), CR_TO(mbr, i));
-            }
-
-        } else {
-            int prev = 0;
-
-            for (i=0; i<n; i++) {
-                for (int j=prev; j < CR_FROM(mbr, i); j++) {
-                    if (j >= sbOut) {
-                        // !goto sb_end2!, remove duplication
-                        prev = sbOut;
-                        for (i=0; i<n; i++) {
-                            if (prev < CR_FROM(mbr, i)) addCodeRangeToBuf(env, prev, CR_FROM(mbr, i) - 1);
-                            prev = CR_TO(mbr, i) + 1;
-                        }
-                        if (prev < 0x7fffffff/*!!!*/) addCodeRangeToBuf(env, prev, 0x7fffffff);
-                        return;
-                    }
-                    bs.set(env, j);
-                }
-                prev = CR_TO(mbr, i) + 1;
-            }
-
-            for (int j=prev; j<sbOut; j++) {
-                bs.set(env, j);
-            }
-
-            // !sb_end2:!
-            prev = sbOut;
-            for (i=0; i<n; i++) {
-                if (prev < CR_FROM(mbr, i)) addCodeRangeToBuf(env, prev, CR_FROM(mbr, i) - 1);
-                prev = CR_TO(mbr, i) + 1;
-            }
-            if (prev < 0x7fffffff/*!!!*/) addCodeRangeToBuf(env, prev, 0x7fffffff);
-        }
-    }
-
-    private static int CR_FROM(int[] range, int i) {
-        return range[(i * 2) + 1];
-    }
-
-    private static int CR_TO(int[] range, int i) {
-        return range[(i * 2) + 2];
-    }
-
-    // add_ctype_to_cc
-    public void addCType(int ctype, boolean not, boolean asciiRange, ScanEnvironment env, IntHolder sbOut) {
-        Encoding enc = env.enc;
-        int[]ranges = enc.ctypeCodeRange(ctype, sbOut);
-        if (ranges != null) {
-            if (asciiRange) {
-                CClassNode ccWork = new CClassNode();
-                ccWork.addCTypeByRange(ctype, not, env, sbOut.value, ranges);
-                if (not) {
-                    ccWork.addCodeRangeToBuf(env, 0x80, Buffer.LAST_CODE_POINT, false);
-                } else {
-                    CClassNode ccAscii = new CClassNode();
-                    if (enc.minLength() > 1) {
-                        ccAscii.addCodeRangeToBuf(env, 0x00, 0x7F);
-                    } else {
-                        ccAscii.bs.setRange(env, 0x00, 0x7F);
-                    }
-                    ccWork.and(ccAscii, env);
-                }
-                or(ccWork, env);
-            } else {
-                addCTypeByRange(ctype, not, env, sbOut.value, ranges);
-            }
-            return;
-        }
-
-        int maxCode = asciiRange ? 0x80 : BitSet.SINGLE_BYTE_SIZE;
-        switch(ctype) {
-        case CharacterType.ALPHA:
-        case CharacterType.BLANK:
-        case CharacterType.CNTRL:
-        case CharacterType.DIGIT:
-        case CharacterType.LOWER:
-        case CharacterType.PUNCT:
-        case CharacterType.SPACE:
-        case CharacterType.UPPER:
-        case CharacterType.XDIGIT:
-        case CharacterType.ASCII:
-        case CharacterType.ALNUM:
-            if (not) {
-                for (int c=0; c<BitSet.SINGLE_BYTE_SIZE; c++) {
-                    if (!enc.isCodeCType(c, ctype)) bs.set(env, c);
-                }
-                addAllMultiByteRange(env);
-            } else {
-                for (int c=0; c<BitSet.SINGLE_BYTE_SIZE; c++) {
-                    if (enc.isCodeCType(c, ctype)) bs.set(env, c);
-                }
-            }
-            break;
-
-        case CharacterType.GRAPH:
-        case CharacterType.PRINT:
-            if (not) {
-                for (int c=0; c<BitSet.SINGLE_BYTE_SIZE; c++) {
-                    if (!enc.isCodeCType(c, ctype) || c >= maxCode) bs.set(env, c);
-                }
-                if (asciiRange) addAllMultiByteRange(env);
-            } else {
-                for (int c=0; c<maxCode; c++) {
-                    if (enc.isCodeCType(c, ctype)) bs.set(env, c);
-                }
-                if (!asciiRange) addAllMultiByteRange(env);
-            }
-            break;
-
-        case CharacterType.WORD:
-            if (!not) {
-                for (int c=0; c<maxCode; c++) {
-                    if (enc.isSbWord(c)) bs.set(env, c);
-                }
-                if (!asciiRange) addAllMultiByteRange(env);
-            } else {
-                for (int c=0; c<BitSet.SINGLE_BYTE_SIZE; c++) {
-                    if (enc.codeToMbcLength(c) > 0 && /* check invalid code point */
-                            !(enc.isWord(c) || c >= maxCode)) bs.set(env, c);
-                }
-                if (asciiRange) addAllMultiByteRange(env);
-            }
-            break;
-
-        default:
-            throw new InternalException(ErrorMessages.PARSER_BUG);
-        } // switch
-    }
-
-    public static enum CCVALTYPE {
-        SB,
-        CODE_POINT,
-        CLASS
-    }
-
-    public static enum CCSTATE {
-        VALUE,
-        RANGE,
-        COMPLETE,
-        START
-    }
-
-    public static final class CCStateArg {
-        public int from;
-        public int to;
-        public boolean fromIsRaw;
-        public boolean toIsRaw;
-        public CCVALTYPE inType;
-        public CCVALTYPE type;
-        public CCSTATE state;
-    }
-
-    public void nextStateClass(CCStateArg arg, CClassNode ascCC, ScanEnvironment env) {
-        if (arg.state == CCSTATE.RANGE) throw new SyntaxException(ErrorMessages.CHAR_CLASS_VALUE_AT_END_OF_RANGE);
-
-        if (arg.state == CCSTATE.VALUE && arg.type != CCVALTYPE.CLASS) {
-            if (arg.type == CCVALTYPE.SB) {
-                bs.set(env, arg.from);
-                if (ascCC != null) ascCC.bs.set(arg.from);
-            } else if (arg.type == CCVALTYPE.CODE_POINT) {
-                addCodeRange(env, arg.from, arg.from);
-                if (ascCC != null) ascCC.addCodeRange(env, arg.from, arg.from, false);
-            }
-        }
-        arg.state = CCSTATE.VALUE;
-        arg.type = CCVALTYPE.CLASS;
-    }
-
-    public void nextStateValue(CCStateArg arg, CClassNode ascCc, ScanEnvironment env) {
-        switch(arg.state) {
-        case VALUE:
-            if (arg.type == CCVALTYPE.SB) {
-                bs.set(env, arg.from);
-                if (ascCc != null) ascCc.bs.set(arg.from);
-            } else if (arg.type == CCVALTYPE.CODE_POINT) {
-                addCodeRange(env, arg.from, arg.from);
-                if (ascCc != null) ascCc.addCodeRange(env, arg.from, arg.from, false);
-            }
-            break;
-
-        case RANGE:
-            if (arg.inType == arg.type) {
-                if (arg.inType == CCVALTYPE.SB) {
-                    if (arg.from > 0xff || arg.to > 0xff) throw new ValueException(ErrorMessages.ERR_INVALID_CODE_POINT_VALUE);
-
-                    if (arg.from > arg.to) {
-                        if (env.syntax.allowEmptyRangeInCC()) {
-                            // goto ccs_range_end
-                            arg.state = CCSTATE.COMPLETE;
-                            break;
-                        } else {
-                            throw new ValueException(ErrorMessages.EMPTY_RANGE_IN_CHAR_CLASS);
-                        }
-                    }
-                    bs.setRange(env, arg.from, arg.to);
-                    if (ascCc != null) ascCc.bs.setRange(null, arg.from, arg.to);
-                } else {
-                    addCodeRange(env, arg.from, arg.to);
-                    if (ascCc != null) ascCc.addCodeRange(env, arg.from, arg.to, false);
-                }
-            } else {
-                if (arg.from > arg.to) {
-                    if (env.syntax.allowEmptyRangeInCC()) {
-                        // goto ccs_range_end
-                        arg.state = CCSTATE.COMPLETE;
-                        break;
-                    } else {
-                        throw new ValueException(ErrorMessages.EMPTY_RANGE_IN_CHAR_CLASS);
-                    }
-                }
-                bs.setRange(env, arg.from, arg.to < 0xff ? arg.to : 0xff);
-                addCodeRange(env, arg.from, arg.to);
-                if (ascCc != null) {
-                    ascCc.bs.setRange(null, arg.from, arg.to < 0xff ? arg.to : 0xff);
-                    ascCc.addCodeRange(env, arg.from, arg.to, false);
-                }
-            }
-            // ccs_range_end:
-            arg.state = CCSTATE.COMPLETE;
-            break;
-
-        case COMPLETE:
-        case START:
-            arg.state = CCSTATE.VALUE;
-            break;
-
-        default:
-            break;
-
-        } // switch
-
-        arg.fromIsRaw = arg.toIsRaw;
-        arg.from = arg.to;
-        arg.type = arg.inType;
-    }
-
-    // onig_is_code_in_cc_len
-    boolean isCodeInCCLength(int encLength, int code) {
-        boolean found;
-
-        if (encLength > 1 || code >= BitSet.SINGLE_BYTE_SIZE) {
-            if (mbuf == null) {
-                found = false;
-            } else {
-                found = CodeRange.isInCodeRange(mbuf.getCodeRange(), code);
-            }
-        } else {
-            found = bs.at(code);
-        }
-
-        if (isNot()) {
-            return !found;
-        } else {
-            return found;
-        }
-    }
-
-    // onig_is_code_in_cc
-    public boolean isCodeInCC(Encoding enc, int code) {
-        int len;
-        if (enc.minLength() > 1) {
-            len = 2;
-        } else {
-            len = enc.codeToMbcLength(code);
-        }
-        return isCodeInCCLength(len, code);
-    }
-
-    public void setNot() {
-        flags |= FLAG_NCCLASS_NOT;
-    }
-
-    public boolean isNot() {
-        return (flags & FLAG_NCCLASS_NOT) != 0;
-    }
+			if not1 {
+				pbuf = coderange.NotBuffer(env, pbuf)
+			}
+		}
+		cn.mbuf = pbuf
+	}
 }
-`
+
+func (cn *CClassNode) or(other *CClassNode, env goni.ScanEnvironment) {
+	not1 := cn.isNot()
+	bsr1 := cn.bs
+	buf1 := cn.mbuf
+	not2 := other.isNot()
+	bsr2 := other.bs
+	buf2 := other.mbuf
+
+	if not1 {
+		bs1 := goni.NewBitSet()
+		bsr1.InvertTo(bs1)
+		bsr1 = bs1
+	}
+
+	if not2 {
+		bs2 := goni.NewBitSet()
+		bsr2.InvertTo(bs2)
+		bsr2 = bs2
+	}
+
+	bsr1.Or(bsr2)
+
+	if bsr1 != cn.bs {
+		cn.bs.Copy(bsr1)
+	}
+
+	if not1 {
+		cn.bs.InvertAll()
+	}
+
+	if !env.Encoding().IsSingleByte() {
+		var pbuf *coderange.Buffer
+		if not1 && not2 {
+			pbuf = coderange.AndBuffer(buf1, false, buf2, false, env)
+		} else {
+			pbuf = coderange.OrBuffer(env, buf1, not1, buf2, not2)
+			if not1 {
+				pbuf = coderange.NotBuffer(env, pbuf)
+			}
+		}
+		cn.mbuf = pbuf
+	}
+}
+
+func (cn *CClassNode) addCTypeByRange(ctype character.Type, not bool, env goni.ScanEnvironment, sbOut int, mbr []int) {
+	n := mbr[0]
+	bs := cn.bs
+
+	if !not {
+		i := 0
+		for ; i < n; i++ {
+			for j := crFrom(mbr, i); j <= crTo(mbr, i); j++ {
+				if j >= sbOut {
+					if j > crFrom(mbr, i) {
+						cn.addCodeRangeToBuf(env, j, crTo(mbr, i), true)
+						i++
+					}
+					// !goto sb_end!, remove duplication!
+					for ; i < n; i++ {
+						cn.addCodeRangeToBuf(env, crFrom(mbr, i), crTo(mbr, i), true)
+					}
+					return
+				}
+				bs.CheckedSet(env, j)
+			}
+		}
+		// !sb_end:!
+		for ; i < n; i++ {
+			cn.addCodeRangeToBuf(env, crFrom(mbr, i), crTo(mbr, i), true)
+		}
+
+	} else {
+		prev := 0
+
+		for i := 0; i < n; i++ {
+			for j := prev; j < crFrom(mbr, i); j++ {
+				if j >= sbOut {
+					// !goto sb_end2!, remove duplication
+					prev = sbOut
+					for i = 0; i < n; i++ {
+						if prev < crFrom(mbr, i) {
+							cn.addCodeRangeToBuf(env, prev, crFrom(mbr, i)-1, true)
+						}
+						prev = crTo(mbr, i) + 1
+					}
+					if prev < 0x7fffffff /*!!!*/ {
+						cn.addCodeRangeToBuf(env, prev, 0x7fffffff, true)
+					}
+					return
+				}
+				bs.CheckedSet(env, j)
+			}
+			prev = crTo(mbr, i) + 1
+		}
+
+		for j := prev; j < sbOut; j++ {
+			bs.CheckedSet(env, j)
+		}
+
+		// !sb_end2:!
+		prev = sbOut
+		for i := 0; i < n; i++ {
+			if prev < crFrom(mbr, i) {
+				cn.addCodeRangeToBuf(env, prev, crFrom(mbr, i)-1, true)
+			}
+			prev = crTo(mbr, i) + 1
+		}
+		if prev < 0x7fffffff /*!!!*/ {
+			cn.addCodeRangeToBuf(env, prev, 0x7fffffff, true)
+		}
+	}
+}
+
+func crFrom(rng []int, i int) int {
+	return rng[(i*2)+1]
+}
+
+func crTo(rng []int, i int) int {
+	return rng[(i*2)+2]
+}
+
+func (cn *CClassNode) addCType(ctype character.Type, not, asciiRange bool, env goni.ScanEnvironment, sbOut *int) {
+	enc := env.Encoding()
+	ranges := enc.CTypeCodeRange(ctype, sbOut)
+	if ranges != nil {
+		if asciiRange {
+			ccWork := NewCClassNode()
+			ccWork.addCTypeByRange(ctype, not, env, *sbOut, ranges)
+			if not {
+				ccWork.addCodeRangeToBuf(env, 0x80, coderange.LastCodePoint, false)
+			} else {
+				ccAscii := NewCClassNode()
+				if enc.MinLength() > 1 {
+					ccAscii.addCodeRangeToBuf(env, 0x00, 0x7F, true)
+				} else {
+					ccAscii.bs.CheckedSetRange(env, 0x00, 0x7F)
+				}
+				ccWork.and(ccAscii, env)
+			}
+			cn.or(ccWork, env)
+		} else {
+			cn.addCTypeByRange(ctype, not, env, *sbOut, ranges)
+		}
+		return
+	}
+
+	maxCode := goni.SingleByteSize
+	if asciiRange {
+		maxCode = 0x80
+	}
+	switch ctype {
+	case character.Alpha,
+		character.Blank,
+		character.Cntrl,
+		character.Digit,
+		character.Lower,
+		character.Punct,
+		character.Space,
+		character.Upper,
+		character.Xdigit,
+		character.Ascii,
+		character.Alnum:
+		if not {
+			for c := 0; c < goni.SingleByteSize; c++ {
+				if !enc.IsCodeCType(c, ctype) {
+					cn.bs.CheckedSet(env, c)
+				}
+			}
+			cn.addAllMultiByteRange(env)
+		} else {
+			for c := 0; c < goni.SingleByteSize; c++ {
+				if enc.IsCodeCType(c, ctype) {
+					cn.bs.CheckedSet(env, c)
+				}
+			}
+		}
+
+	case character.Graph, character.Print:
+		if not {
+			for c := 0; c < goni.SingleByteSize; c++ {
+				if !enc.IsCodeCType(c, ctype) || c >= maxCode {
+					cn.bs.CheckedSet(env, c)
+				}
+			}
+			if asciiRange {
+				cn.addAllMultiByteRange(env)
+			}
+		} else {
+			for c := 0; c < maxCode; c++ {
+				if enc.IsCodeCType(c, ctype) {
+					cn.bs.CheckedSet(env, c)
+				}
+			}
+			if !asciiRange {
+				cn.addAllMultiByteRange(env)
+			}
+		}
+
+	case character.Word:
+		if !not {
+			for c := 0; c < maxCode; c++ {
+				if enc.IsSbWord(c) {
+					cn.bs.CheckedSet(env, c)
+				}
+			}
+			if !asciiRange {
+				cn.addAllMultiByteRange(env)
+			}
+		} else {
+			for c := 0; c < goni.SingleByteSize; c++ {
+				if enc.CodeToMbcLength(c) > 0 && /* check invalid code point */
+					!(enc.IsWord(c) || c >= maxCode) {
+					cn.bs.CheckedSet(env, c)
+				}
+			}
+			if asciiRange {
+				cn.addAllMultiByteRange(env)
+			}
+		}
+
+	default:
+		panic(err.NoArgs(err.ParserBug))
+	}
+}
+
+type CCValType int
+type CCState int
+
+const (
+	CCValTypeSb        = CCValType(0)
+	CCValTypeCodePoint = CCValType(1)
+	CCValTypeClass     = CCValType(2)
+
+	CCStateValue    = CCState(0)
+	CCStateRange    = CCState(1)
+	CCStateComplete = CCState(2)
+	CCStateStart    = CCState(3)
+)
+
+type CCStateArg struct {
+	From      int
+	To        int
+	FromIsRaw bool
+	ToIsRaw   bool
+	InType    CCValType
+	Type      CCValType
+	State     CCState
+}
+
+func (cn *CClassNode) nextStateClass(arg *CCStateArg, ascCC *CClassNode, env goni.ScanEnvironment) {
+	if arg.State == CCStateRange {
+		panic(err.NoArgs(err.CharClassValueAtEndOfRange))
+	}
+
+	if arg.State == CCStateValue && arg.Type != CCValTypeClass {
+		if arg.Type == CCValTypeSb {
+			cn.bs.CheckedSet(env, arg.From)
+			if ascCC != nil {
+				ascCC.bs.Set(arg.From)
+			}
+		} else if arg.Type == CCValTypeCodePoint {
+			cn.addCodeRange(env, arg.From, arg.From, true)
+			if ascCC != nil {
+				ascCC.addCodeRange(env, arg.From, arg.From, false)
+			}
+		}
+	}
+	arg.State = CCStateValue
+	arg.Type = CCValTypeClass
+}
+
+func (cn *CClassNode) nextStateValue(arg *CCStateArg, ascCC *CClassNode, env goni.ScanEnvironment) {
+	bs := cn.bs
+	switch arg.State {
+	case CCStateValue:
+		if arg.Type == CCValTypeSb {
+			bs.CheckedSet(env, arg.From)
+			if ascCC != nil {
+				ascCC.bs.Set(arg.From)
+			}
+		} else if arg.Type == CCValTypeCodePoint {
+			cn.addCodeRange(env, arg.From, arg.From, true)
+			if ascCC != nil {
+				ascCC.addCodeRange(env, arg.From, arg.From, false)
+			}
+		}
+
+	case CCStateRange:
+		if arg.InType == arg.Type {
+			if arg.InType == CCValTypeSb {
+				if arg.From > 0xff || arg.To > 0xff {
+					panic(err.NoArgs(err.CCInvalidCodePointValue))
+				}
+
+				if arg.From > arg.To {
+					if env.Syntax().IsBehavior(syntax.AllowEmptyRangeInCC) {
+						// goto ccs_range_end
+						arg.State = CCStateComplete
+						break
+					} else {
+						panic(err.NoArgs(err.EmptyRangeInCharClass))
+					}
+				}
+				bs.CheckedSetRange(env, arg.From, arg.To)
+				if ascCC != nil {
+					ascCC.bs.SetRange(arg.From, arg.To)
+				}
+			} else {
+				cn.addCodeRange(env, arg.From, arg.To, true)
+				if ascCC != nil {
+					ascCC.addCodeRange(env, arg.From, arg.To, false)
+				}
+			}
+		} else {
+			if arg.From > arg.To {
+				if env.Syntax().IsBehavior(syntax.AllowEmptyRangeInCC) {
+					// goto ccs_range_end
+					arg.State = CCStateComplete
+					break
+				} else {
+					panic(err.NoArgs(err.EmptyRangeInCharClass))
+				}
+			}
+			to := 0xff
+			if arg.To < 0xff {
+				to = arg.To
+			}
+			bs.CheckedSetRange(env, arg.From, to)
+			cn.addCodeRange(env, arg.From, arg.To, true)
+			if ascCC != nil {
+				ascCC.bs.SetRange(arg.From, to)
+				ascCC.addCodeRange(env, arg.From, arg.To, false)
+			}
+		}
+		// ccs_range_end:
+		arg.State = CCStateComplete
+
+	case CCStateComplete, CCStateStart:
+		arg.State = CCStateValue
+	} // switch
+
+	arg.FromIsRaw = arg.ToIsRaw
+	arg.From = arg.To
+	arg.Type = arg.InType
+}
+
+func (cn *CClassNode) isCodeInCCLength(encLength, code int) bool {
+	var found bool
+	if encLength > 1 || code >= goni.SingleByteSize {
+		if cn.mbuf == nil {
+			found = false
+		} else {
+			found = coderange.IsInCodeRange(cn.mbuf.Range(), code)
+		}
+	} else {
+		found = cn.bs.At(code)
+	}
+
+	if cn.isNot() {
+		return !found
+	}
+	return found
+}
+
+func (cn *CClassNode) isCodeInCC(enc goni.Encoding, code int) bool {
+	var ln int
+	if enc.MinLength() > 1 {
+		ln = 2
+	} else {
+		ln = enc.CodeToMbcLength(code)
+	}
+	return cn.isCodeInCCLength(ln, code)
+}

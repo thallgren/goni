@@ -35,17 +35,17 @@ func (c *Buffer) AppendTo(w *util.Indenter) {
 	w.NewLine()
 	w.Append(`ranges:`)
 	w = w.Indent()
-	for i:=0; i<sz; i++ {
-		if i % 6 == 0 {
+	for i := 0; i < sz; i++ {
+		if i%6 == 0 {
 			w.NewLine()
 		}
-		w.Printf(`[0x%x..0x%x]`, c.p[i * 2 + 1], c.p[i * 2 + 2])
+		w.Printf(`[0x%x..0x%x]`, c.p[i*2+1], c.p[i*2+2])
 	}
 }
 
 func (b *Buffer) Copy() *Buffer {
 	l := len(b.p)
-	np := make([]int, l, l)
+	np := make([]int, l)
 	copy(np, b.p)
 	return &Buffer{np}
 }
@@ -212,8 +212,8 @@ func NotBuffer(env goni.ScanEnvironment, bbuf *Buffer) *Buffer {
 		return setAllMultiByteRange(env, nil)
 	}
 
-	p := bbuf.p;
-	n := p[0];
+	p := bbuf.p
+	n := p[0]
 
 	if n <= 0 {
 		return setAllMultiByteRange(env, nil)
@@ -222,12 +222,12 @@ func NotBuffer(env goni.ScanEnvironment, bbuf *Buffer) *Buffer {
 	pre := mbcodeStartPosition(env.Encoding())
 
 	var pbuf *Buffer
-	to := 0;
-	for i:=0; i<n; i++ {
-		from := p[i * 2 + 1]
-		to = p[i * 2 + 2];
-		if (pre <= from - 1) {
-			pbuf = AddToBuffer(pbuf, env, pre, from - 1, true)
+	to := 0
+	for i := 0; i < n; i++ {
+		from := p[i*2+1]
+		to = p[i*2+2]
+		if pre <= from-1 {
+			pbuf = AddToBuffer(pbuf, env, pre, from-1, true)
 		}
 		if to == LastCodePoint {
 			break
@@ -236,12 +236,12 @@ func NotBuffer(env goni.ScanEnvironment, bbuf *Buffer) *Buffer {
 	}
 
 	if to < LastCodePoint {
-		pbuf = AddToBuffer(pbuf, env, to + 1, LastCodePoint, true)
+		pbuf = AddToBuffer(pbuf, env, to+1, LastCodePoint, true)
 	}
-	return pbuf;
+	return pbuf
 }
 
-func OrBuffer(env goni.ScanEnvironment,  bbuf1 *Buffer, not1 bool, bbuf2 *Buffer, not2 bool) (pbuf *Buffer) {
+func OrBuffer(env goni.ScanEnvironment, bbuf1 *Buffer, not1 bool, bbuf2 *Buffer, not2 bool) (pbuf *Buffer) {
 	if bbuf1 == nil && bbuf2 == nil {
 		if not1 || not2 {
 			pbuf = setAllMultiByteRange(env, pbuf)
@@ -251,8 +251,12 @@ func OrBuffer(env goni.ScanEnvironment,  bbuf1 *Buffer, not1 bool, bbuf2 *Buffer
 
 	if bbuf2 == nil {
 		// swap
-		tnot := not1; not1 = not2; not2 = tnot
-		tbuf := bbuf1; bbuf1 = bbuf2; bbuf2 = tbuf
+		tnot := not1
+		not1 = not2
+		not2 = tnot
+		tbuf := bbuf1
+		bbuf1 = bbuf2
+		bbuf2 = tbuf
 	}
 
 	if bbuf1 == nil {
@@ -270,8 +274,12 @@ func OrBuffer(env goni.ScanEnvironment,  bbuf1 *Buffer, not1 bool, bbuf2 *Buffer
 
 	if not1 {
 		// swap
-		tnot := not1; not1 = not2; not2 = tnot
-		tbuf := bbuf1; bbuf1 = bbuf2; bbuf2 = tbuf
+		tnot := not1
+		not1 = not2
+		not2 = tnot
+		tbuf := bbuf1
+		bbuf1 = bbuf2
+		bbuf2 = tbuf
 	}
 
 	if !not2 && !not1 { /* 1 OR 2 */
@@ -283,18 +291,18 @@ func OrBuffer(env goni.ScanEnvironment,  bbuf1 *Buffer, not1 bool, bbuf2 *Buffer
 	p1 := bbuf1.p
 	n1 := p1[0]
 
-	for i:=0; i<n1; i++ {
-		from := p1[i * 2 + 1]
-		to := p1[i * 2 + 2]
+	for i := 0; i < n1; i++ {
+		from := p1[i*2+1]
+		to := p1[i*2+2]
 		pbuf = AddToBuffer(pbuf, env, from, to, true)
 	}
 	return
 }
 
 func andCodeRange1(pbuf *Buffer, env goni.ScanEnvironment, from1, to1 int, data []int, n int) *Buffer {
-	for i:=0; i<n; i++ {
-		from2 := data[i * 2 + 1]
-		to2 := data[i * 2 + 2]
+	for i := 0; i < n; i++ {
+		from2 := data[i*2+1]
+		to2 := data[i*2+2]
 		if from2 < from1 {
 			if to2 < from1 {
 				continue
@@ -302,8 +310,8 @@ func andCodeRange1(pbuf *Buffer, env goni.ScanEnvironment, from1, to1 int, data 
 			from1 = to2 + 1
 		} else if from2 <= to1 {
 			if to2 < to1 {
-				if from1 <= from2 - 1 {
-					pbuf = AddToBuffer(pbuf, env, from1, from2 - 1, true)
+				if from1 <= from2-1 {
+					pbuf = AddToBuffer(pbuf, env, from1, from2-1, true)
 				}
 				from1 = to2 + 1
 			} else {
@@ -321,11 +329,11 @@ func andCodeRange1(pbuf *Buffer, env goni.ScanEnvironment, from1, to1 int, data 
 		pbuf = AddToBuffer(pbuf, env, from1, to1, true)
 	}
 
-	return pbuf;
+	return pbuf
 }
 
 func AndBuffer(bbuf1 *Buffer, not1 bool,
-	bbuf2 *Buffer, not2 bool, env goni.ScanEnvironment) (pbuf *Buffer)  {
+	bbuf2 *Buffer, not2 bool, env goni.ScanEnvironment) (pbuf *Buffer) {
 	if bbuf1 == nil {
 		if not1 && bbuf2 != nil {
 			pbuf = bbuf2.Copy()
@@ -341,23 +349,27 @@ func AndBuffer(bbuf1 *Buffer, not1 bool,
 
 	if not1 {
 		// swap
-		tnot := not1; not1 = not2; not2 = tnot
-		tbuf := bbuf1; bbuf1 = bbuf2; bbuf2 = tbuf
+		tnot := not1
+		not1 = not2
+		not2 = tnot
+		tbuf := bbuf1
+		bbuf1 = bbuf2
+		bbuf2 = tbuf
 	}
 
-	p1 := bbuf1.p;
-	n1 := p1[0];
-	p2 := bbuf2.p;
-	n2 := p2[0];
+	p1 := bbuf1.p
+	n1 := p1[0]
+	p2 := bbuf2.p
+	n2 := p2[0]
 
 	if !not2 && !not1 { /* 1 AND 2 */
-		for i:=0; i<n1; i++ {
-			from1 := p1[i * 2 + 1]
-			to1 := p1[i * 2 + 2]
+		for i := 0; i < n1; i++ {
+			from1 := p1[i*2+1]
+			to1 := p1[i*2+2]
 
-			for j:=0; j<n2; j++ {
-				from2 := p2[j * 2 + 1]
-				to2 := p2[j * 2 + 2]
+			for j := 0; j < n2; j++ {
+				from2 := p2[j*2+1]
+				to2 := p2[j*2+2]
 
 				if from2 > to1 {
 					break
@@ -366,7 +378,7 @@ func AndBuffer(bbuf1 *Buffer, not1 bool,
 					continue
 				}
 				from := from2
-				if from1 > from2{
+				if from1 > from2 {
 					from = from1
 				}
 				to := to2
@@ -376,12 +388,32 @@ func AndBuffer(bbuf1 *Buffer, not1 bool,
 				pbuf = AddToBuffer(pbuf, env, from, to, true)
 			}
 		}
-	} else if (!not1) { /* 1 AND (not 2) */
-		for i:=0; i<n1; i++ {
-			from1 := p1[i * 2 + 1];
-			to1 := p1[i * 2 + 2];
-			pbuf = andCodeRange1(pbuf, env, from1, to1, p2, n2);
+	} else if !not1 { /* 1 AND (not 2) */
+		for i := 0; i < n1; i++ {
+			from1 := p1[i*2+1]
+			to1 := p1[i*2+2]
+			pbuf = andCodeRange1(pbuf, env, from1, to1, p2, n2)
 		}
 	}
 	return
+}
+
+func IsInCodeRange(p []int, code int) bool {
+	return IsInCodeRange2(p, 0, code)
+}
+
+func IsInCodeRange2(p []int, offset, code int) bool {
+	low := 0
+	n := p[offset]
+	high := n
+
+	for low < high {
+		x := (low + high) >> 1
+		if code > p[(x<<1)+2+offset] {
+			low = x + 1
+		} else {
+			high = x
+		}
+	}
+	return low < n && code >= p[(low<<1)+1+offset]
 }

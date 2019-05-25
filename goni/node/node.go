@@ -3,17 +3,17 @@ package node
 type Type uint
 
 const (
-	Str     = Type(0)
-	CClass  = Type(1)
-	CType   = Type(2)
-	CAny    = Type(3)
-	Bref    = Type(4)
-	QTFR    = Type(5)
-	Enclose = Type(6)
-	Anchor  = Type(7)
-	List    = Type(8)
-	Alt     = Type(9)
-	Call    = Type(10)
+	Str     = Type(iota)
+	CClass
+	CType
+	CAny
+	Bref
+	QTFR
+	Enclose
+	Anchor
+	List
+	Alt
+	Call
 
 	Top = Type(15)
 

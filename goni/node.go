@@ -10,9 +10,7 @@ import (
 
 type Node interface {
 	fmt.Stringer
-
-	// AppendTo appends a string representation of the Node to the Indenter
-	AppendTo(*util.Indenter)
+	util.Indentable
 
 	Simple() bool
 

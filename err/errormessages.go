@@ -67,6 +67,30 @@ const (
 	InvalidCombinationOfOptions        = issue.Code(`INVALID_COMBINATION_OF_OPTIONS`)
 	OverThreadPassLimitCount           = issue.Code(`OVER_THREAD_PASS_LIMIT_COUNT`)
 	TooBigSbCharValue                  = issue.Code(`TOO_BIG_SB_CHAR_VALUE`)
+
+	CCTypeBug = issue.Code(`CCTYPE_BUG`)
+
+	CCTooBigWideCharValue  = issue.Code(`CCTOO_BIG_WIDE_CHAR_VALUE`)
+	CCTooLongWideCharValue = issue.Code(`CCTOO_LONG_WIDE_CHAR_VALUE`)
+
+	CCInvalidCharPropertyName = issue.Code(`CCINVALID_CHAR_PROPERTY_NAME`)
+	CCInvalidCodePointValue   = issue.Code(`CCINVALID_CODE_POINT_VALUE`)
+
+	CCEncodingClassDefNotFound = issue.Code(`CCENCODING_CLASS_DEF_NOT_FOUND`)
+	CCEncodingLoadError        = issue.Code(`CCENCODING_LOAD_ERROR`)
+
+	CCIllegalCharacter = issue.Code(`CCILLEGAL_CHARACTER`)
+
+	CCEncodingAlreadyRegistered        = issue.Code(`CCENCODING_ALREADY_REGISTERED`)
+	CCEncodingAliasAlreadyRegistered   = issue.Code(`CCENCODING_ALIAS_ALREADY_REGISTERED`)
+	CCEncodingReplicaAlreadyRegistered = issue.Code(`CCENCODING_REPLICA_ALREADY_REGISTERED`)
+	CCNoSuchEncodng                    = issue.Code(`CCNO_SUCH_ENCODNG`)
+	CCCouldNotReplicate                = issue.Code(`CCCOULD_NOT_REPLICATE`)
+
+	// transcoder messages
+	CCTranscoderAlreadyRegistered = issue.Code(`CCTRANSCODER_ALREADY_REGISTERED`)
+	CCTranscoderClassDefNotFound  = issue.Code(`CCTRANSCODER_CLASS_DEF_NOT_FOUND`)
+	CCTranscoderLoadError         = issue.Code(`CCTRANSCODER_LOAD_ERROR`)
 )
 
 func init() {
@@ -137,4 +161,29 @@ func init() {
 	issue.Hard(InvalidCombinationOfOptions, `invalid combination of options`)
 	issue.Hard(OverThreadPassLimitCount, `over thread pass limit count`)
 	issue.Hard(TooBigSbCharValue, `too big singlebyte char value`)
+
+	issue.Hard(CCTypeBug, `undefined type (bug)`)
+
+	issue.Hard(CCTooBigWideCharValue, `too big wide-char value`)
+	issue.Hard(CCTooLongWideCharValue, `too long wide-char value`)
+
+	issue.Hard(CCInvalidCharPropertyName, `invalid character property name <%n>`)
+	issue.Hard(CCInvalidCodePointValue, `invalid code point value`)
+
+	issue.Hard(CCEncodingClassDefNotFound, `encoding class <%n> not found`)
+	issue.Hard(CCEncodingLoadError, `problem loading encoding <%n>`)
+
+	issue.Hard(CCIllegalCharacter, `illegal character`)
+
+	issue.Hard(CCEncodingAlreadyRegistered, `encoding already registerd <%n>`)
+	issue.Hard(CCEncodingAliasAlreadyRegistered, `encoding alias already registerd <%n>`)
+	issue.Hard(CCEncodingReplicaAlreadyRegistered, `encoding replica already registerd <%n>`)
+	issue.Hard(CCNoSuchEncodng, `no such encoding <%n>`)
+	issue.Hard(CCCouldNotReplicate, `could not replicate <%n> encoding`)
+
+	// transcoder messages
+	issue.Hard(CCTranscoderAlreadyRegistered, `transcoder from <%n> has been already registered`)
+	issue.Hard(CCTranscoderClassDefNotFound, `transcoder class <%n> not found`)
+	issue.Hard(CCTranscoderLoadError, `problem loading transcoder <%n>`)
+
 }

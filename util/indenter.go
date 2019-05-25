@@ -13,6 +13,11 @@ type Indenter struct {
 	i int
 }
 
+type Indentable interface {
+	// AppendTo appends a string representation of the Node to the Indenter
+	AppendTo(w *Indenter)
+}
+
 func NewIndenter() *Indenter {
 	return &Indenter{b: &bytes.Buffer{}, i: 0}
 }

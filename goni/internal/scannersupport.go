@@ -8,6 +8,7 @@ import (
 )
 
 type scannerSupport struct {
+	value       int
 	enc         goni.Encoding // fast access to encoding
 	bytes       []byte        // pattern
 	p           int           // current scanner position
@@ -166,6 +167,10 @@ func (ss *scannerSupport) peekIs(c int) bool {
 
 func (ss *scannerSupport) left() bool {
 	return ss.p < ss.stop
+}
+
+func (ss* scannerSupport) newValueException(code issue.Code, p, end int) issue.Reported {
+	return err.WithArgs(code, issue.H{`n`: string(ss.bytes[p:end]) })
 }
 
 func newSyntaxException(code issue.Code) issue.Reported {

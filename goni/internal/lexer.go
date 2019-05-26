@@ -6,6 +6,7 @@ import (
 	"github.com/lyraproj/goni/err"
 	"github.com/lyraproj/goni/goni"
 	"github.com/lyraproj/goni/goni/syntax"
+	"github.com/lyraproj/issue/issue"
 )
 
 type Lexer struct {
@@ -153,7 +154,7 @@ func (lx *Lexer) fetchEscapedValue() {
 			if lx.c == snx.MetaCharTable.Esc {
 				lx.fetchEscapedValue()
 			}
-			lx.c = ((lx.c & 0xff) | 0x80)
+			lx.c = (lx.c & 0xff) | 0x80
 		} else {
 			lx.fetchEscapedValueBackSlash()
 		}
@@ -205,331 +206,369 @@ func (lx *Lexer) fetchEscapedValueControl() {
 		lx.c &= 0x9f
 	}
 }
+func (lx *Lexer) nameEndCodePoint(start int) int {
+	switch start {
+	case '<':
+		return '>'
+	case '\'':
+		return '\''
+	case '(':
+		return ')'
+	case '{':
+		return '}'
+	default:
+		return 0
+	}
+}
+
+// USE_NAMED_GROUP && USE_BACKREF_AT_LEVEL
+/*
+   \k<name+n>, \k<name-n>
+   \k<num+n>,  \k<num-n>
+   \k<-num+n>, \k<-num-n>
+*/
+
+// value implicit (rnameEnd)
+
+type Ptr *int
+
+func (lx *Lexer) fetchNameWithLevel(startCode int, rbackNum, rlevel Ptr) bool {
+	src := lx.p
+	existLevel := false
+	isNum := 0
+	sign := 1
+
+	endCode := lx.nameEndCodePoint(startCode)
+	pnumHead := lx.p
+	nameEnd := lx.stop
+
+	var er issue.Code
+	if !lx.left() {
+		panic(newSyntaxException(err.EmptyGroupName))
+	}
+	lx.fetch()
+	c := lx.c
+	if c == endCode {
+		panic(newSyntaxException(err.EmptyGroupName))
+	}
+	if lx.enc.IsDigit(c) {
+		isNum = 1
+	} else if c == '-' {
+		isNum = 2
+		sign = -1
+		pnumHead = lx.p
+	}
+
+	for lx.left() {
+		nameEnd = lx.p
+		lx.fetch()
+		c := lx.c
+		if c == endCode || c == ')' || c == '+' || c == '-' {
+			if isNum == 2 {
+				er = err.InvalidGroupName
+			}
+			break
+		}
+
+		if isNum != 0 {
+			if lx.enc.IsDigit(c) {
+				isNum = 1
+			} else {
+				er = err.InvalidGroupName
+				// isNum = 0;
+			}
+		}
+	}
+
+	isEndCode := false
+	if er == `` && lx.c != endCode {
+		if lx.c == '+' || lx.c == '-' {
+			flag := 1
+			if lx.c == '-' {
+				flag = -1
+			}
+
+			lx.fetch()
+			if !lx.enc.IsDigit(lx.c) {
+				panic(lx.newValueException(err.InvalidGroupName, src, lx.stop))
+			}
+			lx.unfetch()
+			level := lx.scanUnsignedNumber()
+			if level < 0 {
+				panic(newSyntaxException(err.TooBigNumber))
+			}
+			*rlevel = level * flag
+			existLevel = true
+
+			lx.fetch()
+			isEndCode = lx.c == endCode
+		}
+
+		if !isEndCode {
+			er = err.InvalidGroupName
+			nameEnd = lx.stop
+		}
+	}
+
+	if er != `` {
+		panic(lx.newValueException(err.InvalidGroupName, src, lx.stop))
+	}
+
+	if isNum != 0 {
+		lx.mark()
+		lx.p = pnumHead
+		backNum := lx.scanUnsignedNumber()
+		lx.restore()
+		if backNum < 0 {
+			panic(newSyntaxException(err.TooBigNumber))
+		}
+		if backNum == 0 {
+			panic(lx.newValueException(err.InvalidGroupName, src, lx.stop))
+		}
+		*rbackNum = backNum * sign
+	}
+	lx.value = nameEnd
+	return existLevel
+}
+
+// USE_NAMED_GROUP
+// ref: 0 -> define name    (don't allow number name)
+//      1 -> reference name (allow number name)
+func (lx *Lexer) fetchNameForNamedGroup(startCode int, ref bool) int {
+	src := lx.p
+	enc := lx.enc
+	lx.value = 0
+
+	isNum := 0
+	sign := 1
+
+	endCode := lx.nameEndCodePoint(startCode)
+	pnumHead := lx.p
+	nameEnd := lx.stop
+
+	var er issue.Code
+	if !lx.left() {
+		panic(newSyntaxException(err.EmptyGroupName))
+	}
+	lx.fetch()
+	c := lx.c
+	if c == endCode {
+		panic(newSyntaxException(err.EmptyGroupName))
+	}
+	if enc.IsDigit(c) {
+		if ref {
+			isNum = 1
+		} else {
+			er = err.InvalidGroupName
+			// isNum = 0;
+		}
+	} else if c == '-' {
+		if ref {
+			isNum = 2
+			sign = -1
+			pnumHead = lx.p
+		} else {
+			er = err.InvalidGroupName
+			// isNum = 0;
+		}
+	}
+
+	if er != `` {
+		return lx.fetchNameTeardown(src, endCode, nameEnd, er)
+	}
+	for lx.left() {
+		nameEnd = lx.p
+		lx.fetch()
+		c := lx.c
+		if c == endCode || c == ')' {
+			if isNum == 2 {
+				er = err.InvalidGroupName
+				return lx.fetchNameTeardown(src, endCode, nameEnd, er)
+			}
+			break
+		}
+
+		if isNum != 0 {
+			if enc.IsDigit(c) {
+				isNum = 1
+			} else {
+				if !enc.IsWord(c) {
+					er = err.InvalidCharInGroupName
+				} else {
+					er = err.InvalidGroupName
+				}
+				return lx.fetchNameTeardown(src, endCode, nameEnd, er)
+			}
+		}
+	}
+
+	if lx.c != endCode {
+		er = err.InvalidGroupName
+		nameEnd = lx.stop
+		return lx.fetchNameErr(src, nameEnd, er)
+	}
+
+	backNum := 0
+	if isNum != 0 {
+		lx.mark()
+		lx.p = pnumHead
+		backNum = lx.scanUnsignedNumber()
+		lx.restore()
+		if backNum < 0 {
+			panic(newSyntaxException(err.TooBigNumber))
+		}
+		if backNum == 0 {
+			panic(lx.newValueException(err.InvalidGroupName, src, nameEnd))
+		}
+		backNum *= sign
+	}
+	lx.value = nameEnd
+	return backNum
+}
+
+func (lx *Lexer) fetchNameErr(src, nameEnd int, er issue.Code) int {
+	panic(lx.newValueException(er, src, nameEnd))
+}
+
+func (lx *Lexer) fetchNameTeardown(src, endCode, nameEnd int, er issue.Code) int {
+	for lx.left() {
+		nameEnd = lx.p
+		lx.fetch()
+		if lx.c == endCode || lx.c == ')' {
+			break
+		}
+	}
+	if !lx.left() {
+		nameEnd = lx.stop
+	}
+	return lx.fetchNameErr(src, nameEnd, er)
+}
+
+// #else USE_NAMED_GROUP
+// make it return nameEnd!
+func (lx *Lexer) fetchNameForNoNamedGroup(startCode int, ref bool) int {
+	src := lx.p
+	enc := lx.enc
+	lx.value = 0
+	sign := 1
+
+	endCode := lx.nameEndCodePoint(startCode)
+	pnumHead := lx.p
+	nameEnd := lx.stop
+
+	var er issue.Code
+	if !lx.left() {
+		panic(newSyntaxException(err.EmptyGroupName))
+	}
+	lx.fetch()
+	c := lx.c
+	if c == endCode {
+		panic(newSyntaxException(err.EmptyGroupName))
+	}
+
+	if enc.IsDigit(c) {
+	} else if c == '-' {
+		sign = -1
+		pnumHead = lx.p
+	} else {
+		er = err.InvalidCharInGroupName
+	}
+
+	for lx.left() {
+		nameEnd = lx.p
+
+		lx.fetch()
+		c := lx.c
+		if c == endCode || c == ')' {
+			break
+		}
+		if !enc.IsDigit(c) {
+			er = err.InvalidCharInGroupName
+		}
+	}
+
+	if er == `` && lx.c != endCode {
+		er = err.InvalidGroupName
+		nameEnd = lx.stop
+	}
+
+	if er != `` {
+		panic(lx.newValueException(er, src, nameEnd))
+	}
+	lx.mark()
+	lx.p = pnumHead
+	backNum := lx.scanUnsignedNumber()
+	lx.restore()
+	if backNum < 0 {
+		panic(newSyntaxException(err.TooBigNumber))
+	}
+	if backNum == 0 {
+		panic(lx.newValueException(err.InvalidGroupName, src, nameEnd))
+	}
+	backNum *= sign
+
+	lx.value = nameEnd
+	return backNum
+}
+
+func (lx *Lexer) fetchName(startCode int, ref bool) int {
+	if config.UseNamedGroup {
+		return lx.fetchNameForNamedGroup(startCode, ref)
+	} else {
+		return lx.fetchNameForNoNamedGroup(startCode, ref)
+	}
+}
+
+func (lx *Lexer) strExistCheckWithEsc(s []int, n, bad int) bool {
+	p := lx.p
+	to := lx.stop
+	enc := lx.enc
+
+	inEsc := false
+	i := 0
+	for p < to {
+		if inEsc {
+			inEsc = false
+			p += enc.Length(lx.bytes, p, to)
+		} else {
+			x, cl := enc.MbcToCode(lx.bytes, p, to)
+			q := p + cl
+			if x == s[0] {
+				for i = 1; i < n && q < to; i++ {
+					x, cl = enc.MbcToCode(lx.bytes, q, to)
+					if x != s[i] {
+						break
+					}
+					q += cl
+				}
+				if i >= n {
+					return true
+				}
+				p += enc.Length(lx.bytes, p, to)
+			} else {
+				x, _ = enc.MbcToCode(lx.bytes, p, to)
+				if x == bad {
+					return false
+				} else if x == lx.syntax.MetaCharTable.Esc {
+					inEsc = true
+				}
+				p = q
+			}
+		}
+	}
+	return false
+}
+
+var send = []int{':', ']'}
+
+func (lx *Lexer) fetchTokenInCCFor_charType(flag bool, typ int) {
+	token := lx.token
+	token.typ = TkCharType
+	token.setPropCType(typ)
+	token.setPropNot(flag)
+}
 
 var z = `
-    private int nameEndCodePoint(int start) {
-        switch(start) {
-        case '<':
-            return '>';
-        case '\'':
-            return '\'';
-        case '(':
-            return ')';
-        case '{':
-            return '}';
-        default:
-            return 0;
-        }
-    }
-
-    // USE_NAMED_GROUP && USE_BACKREF_AT_LEVEL
-    /*
-        \k<name+n>, \k<name-n>
-        \k<num+n>,  \k<num-n>
-        \k<-num+n>, \k<-num-n>
-     */
-
-    // value implicit (rnameEnd)
-    private boolean fetchNameWithLevel(int startCode, Ptr rbackNum, Ptr rlevel) {
-        int src = p;
-        boolean existLevel = false;
-        int isNum = 0;
-        int sign = 1;
-
-        int endCode = nameEndCodePoint(startCode);
-        int pnumHead = p;
-        int nameEnd = stop;
-
-        String err = null;
-        if (!left()) {
-            newValueException(EMPTY_GROUP_NAME);
-        } else {
-            fetch();
-            if (c == endCode) newValueException(EMPTY_GROUP_NAME);
-            if (enc.isDigit(c)) {
-                isNum = 1;
-            } else if (c == '-') {
-                isNum = 2;
-                sign = -1;
-                pnumHead = p;
-            }
-        }
-
-        while (left()) {
-            nameEnd = p;
-            fetch();
-            if (c == endCode || c == ')' || c == '+' || c == '-') {
-                if (isNum == 2) err = INVALID_GROUP_NAME;
-                break;
-            }
-
-            if (isNum != 0) {
-                if (enc.isDigit(c)) {
-                    isNum = 1;
-                } else {
-                    err = INVALID_GROUP_NAME;
-                    // isNum = 0;
-                }
-            }
-        }
-
-        boolean isEndCode = false;
-        if (err == null && c != endCode) {
-            if (c == '+' || c == '-') {
-                int flag = c == '-' ? -1 : 1;
-
-                fetch();
-                if (!enc.isDigit(c)) newValueException(INVALID_GROUP_NAME, src, stop);
-                unfetch();
-                int level = scanUnsignedNumber();
-                if (level < 0) newValueException(TOO_BIG_NUMBER);
-                rlevel.p = level * flag;
-                existLevel = true;
-
-                fetch();
-                isEndCode = c == endCode;
-            }
-
-            if (!isEndCode) {
-                err = INVALID_GROUP_NAME;
-                nameEnd = stop;
-            }
-        }
-
-        if (err == null) {
-            if (isNum != 0) {
-                mark();
-                p = pnumHead;
-                int backNum = scanUnsignedNumber();
-                restore();
-                if (backNum < 0) {
-                    newValueException(TOO_BIG_NUMBER);
-                } else if (backNum == 0) {
-                    newValueException(INVALID_GROUP_NAME, src, stop);
-                }
-                rbackNum.p = backNum * sign;
-            }
-            value = nameEnd;
-            return existLevel;
-        } else {
-            newValueException(INVALID_GROUP_NAME, src, nameEnd);
-            return false; // not reached
-        }
-    }
-
-    // USE_NAMED_GROUP
-    // ref: 0 -> define name    (don't allow number name)
-    //      1 -> reference name (allow number name)
-    private int fetchNameForNamedGroup(int startCode, boolean ref) {
-        int src = p;
-        value = 0;
-
-        int isNum = 0;
-        int sign = 1;
-
-        int endCode = nameEndCodePoint(startCode);
-        int pnumHead = p;
-        int nameEnd = stop;
-
-        String err = null;
-        if (!left()) {
-            newValueException(EMPTY_GROUP_NAME);
-        } else {
-            fetch();
-            if (c == endCode) newValueException(EMPTY_GROUP_NAME);
-            if (enc.isDigit(c)) {
-                if (ref) {
-                    isNum = 1;
-                } else {
-                    err = INVALID_GROUP_NAME;
-                    // isNum = 0;
-                }
-            } else if (c == '-') {
-                if (ref) {
-                    isNum = 2;
-                    sign = -1;
-                    pnumHead = p;
-                } else {
-                    err = INVALID_GROUP_NAME;
-                    // isNum = 0;
-                }
-            }
-        }
-
-        if (err == null) {
-            while (left()) {
-                nameEnd = p;
-                fetch();
-                if (c == endCode || c == ')') {
-                    if (isNum == 2) {
-                        err = INVALID_GROUP_NAME;
-                        return fetchNameTeardown(src, endCode, nameEnd, err);
-                    }
-                    break;
-                }
-
-                if (isNum != 0) {
-                    if (enc.isDigit(c)) {
-                        isNum = 1;
-                    } else {
-                        if (!enc.isWord(c)) {
-                            err = INVALID_CHAR_IN_GROUP_NAME;
-                        } else {
-                            err = INVALID_GROUP_NAME;
-                        }
-                        return fetchNameTeardown(src, endCode, nameEnd, err);
-                    }
-                }
-            }
-
-            if (c != endCode) {
-                err = INVALID_GROUP_NAME;
-                nameEnd = stop;
-                return fetchNameErr(src, nameEnd, err);
-            }
-
-            int backNum = 0;
-            if (isNum != 0) {
-                mark();
-                p = pnumHead;
-                backNum = scanUnsignedNumber();
-                restore();
-                if (backNum < 0) {
-                    newValueException(TOO_BIG_NUMBER);
-                } else if (backNum == 0) {
-                    newValueException(INVALID_GROUP_NAME, src, nameEnd);
-                }
-                backNum *= sign;
-            }
-            value = nameEnd;
-            return backNum;
-        } else {
-            return fetchNameTeardown(src, endCode, nameEnd, err);
-        }
-    }
-
-    private int fetchNameErr(int src, int nameEnd, String err) {
-        newValueException(err, src, nameEnd);
-        return 0; // not reached
-    }
-
-    private int fetchNameTeardown(int src, int endCode, int nameEnd, String err) {
-        while (left()) {
-            nameEnd = p;
-            fetch();
-            if (c == endCode || c == ')') break;
-        }
-        if (!left()) nameEnd = stop;
-        return fetchNameErr(src, nameEnd, err);
-    }
-
-    // #else USE_NAMED_GROUP
-    // make it return nameEnd!
-    private final int fetchNameForNoNamedGroup(int startCode, boolean ref) {
-        int src = p;
-        value = 0;
-        int sign = 1;
-
-        int endCode = nameEndCodePoint(startCode);
-        int pnumHead = p;
-        int nameEnd = stop;
-
-        String err = null;
-        if (!left()) {
-            newValueException(EMPTY_GROUP_NAME);
-        } else {
-            fetch();
-            if (c == endCode) newValueException(EMPTY_GROUP_NAME);
-
-            if (enc.isDigit(c)) {
-            } else if (c == '-') {
-                sign = -1;
-                pnumHead = p;
-            } else {
-                err = INVALID_CHAR_IN_GROUP_NAME;
-            }
-        }
-
-        while(left()) {
-            nameEnd = p;
-
-            fetch();
-            if (c == endCode || c == ')') break;
-            if (!enc.isDigit(c)) err = INVALID_CHAR_IN_GROUP_NAME;
-        }
-
-        if (err == null && c != endCode) {
-            err = INVALID_GROUP_NAME;
-            nameEnd = stop;
-        }
-
-        if (err == null) {
-            mark();
-            p = pnumHead;
-            int backNum = scanUnsignedNumber();
-            restore();
-            if (backNum < 0) {
-                newValueException(TOO_BIG_NUMBER);
-            } else if (backNum == 0){
-                newValueException(INVALID_GROUP_NAME, src, nameEnd);
-            }
-            backNum *= sign;
-
-            value = nameEnd;
-            return backNum;
-        } else {
-            newValueException(err, src, nameEnd);
-            return 0; // not reached
-        }
-    }
-
-    protected final int fetchName(int startCode, boolean ref) {
-        if (Config.USE_NAMED_GROUP) {
-            return fetchNameForNamedGroup(startCode, ref);
-        } else {
-            return fetchNameForNoNamedGroup(startCode, ref);
-        }
-    }
-
-    private boolean strExistCheckWithEsc(int[]s, int n, int bad) {
-        int p = this.p;
-        int to = this.stop;
-
-        boolean inEsc = false;
-        int i=0;
-        while(p < to) {
-            if (inEsc) {
-                inEsc = false;
-                p += enc.length(bytes, p, to);
-            } else {
-                int x = enc.mbcToCode(bytes, p, to);
-                int q = p + enc.length(bytes, p, to);
-                if (x == s[0]) {
-                    for (i=1; i<n && q < to; i++) {
-                        x = enc.mbcToCode(bytes, q, to);
-                        if (x != s[i]) break;
-                        q += enc.length(bytes, q, to);
-                    }
-                    if (i >= n) return true;
-                    p += enc.length(bytes, p, to);
-                } else {
-                    x = enc.mbcToCode(bytes, p, to);
-                    if (x == bad) return false;
-                    else if (x == syntax.metaCharTable.esc) inEsc = true;
-                    p = q;
-                }
-            }
-        }
-        return false;
-    }
-
-    private static final int send[] = new int[]{':', ']'};
-
-    private void fetchTokenInCCFor_charType(boolean flag, int type) {
-        token.type = TokenType.CHAR_TYPE;
-        token.setPropCType(type);
-        token.setPropNot(flag);
-    }
 
     private void fetchTokenInCCFor_p() {
         int c2 = peek(); // !!! migrate to peekIs

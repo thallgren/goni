@@ -1,5 +1,7 @@
 package internal
 
+import "github.com/lyraproj/goni/goni/character"
+
 type TokenType int
 
 const (
@@ -192,11 +194,11 @@ func (t *Token) setCallRel(rel bool) {
 }
 
 // prop union member
-func (t *Token) getPropCType() int {
-	return t.int1
+func (t *Token) getPropCType() character.Type {
+	return character.Type(t.int1)
 }
-func (t *Token) setPropCType(ctype int) {
-	t.int1 = ctype
+func (t *Token) setPropCType(ctype character.Type) {
+	t.int1 = int(ctype)
 }
 func (t *Token) getPropNot() bool {
 	return t.int2 != 0

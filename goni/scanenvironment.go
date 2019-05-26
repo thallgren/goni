@@ -7,6 +7,8 @@ type ScanEnvironment interface {
 
 	CCDuplicateWarning()
 
+	CCEscWarn(msg string)
+
 	ConvertBackslashValue(c int) int
 
 	Encoding() Encoding
@@ -16,4 +18,6 @@ type ScanEnvironment interface {
 	NumMem() int
 
 	Syntax() *Syntax
+
+	Warnings() WarnCallback
 }

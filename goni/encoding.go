@@ -20,6 +20,8 @@ type Encoding interface {
 	// MinLength returns minimum character byte length that can appear in an encoding
 	MinLength() int
 
+	PropertyNameToCType(name []byte, p, end int) character.Type
+
 	// IsCodeCType performs a check whether given code is of given character type (e.g. used by
 	// isWord(someByte) and similar methods)
 	IsCodeCType(code int, ctype character.Type) bool

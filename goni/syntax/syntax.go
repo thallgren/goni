@@ -32,7 +32,7 @@ const (
 	OpEscDDigit              = Op(1 << 22) /* \d, \D */
 	OpLineAnchor             = Op(1 << 23) /* ^, $   */
 	OpPosixBracket           = Op(1 << 24) /* [:xxxx:] */
-	OpQmarkNonGreedy         = Op(1 << 25) /* ??,*?,+?,{n,m}? */
+	OpQMarkNonGreedy         = Op(1 << 25) /* ??,*?,+?,{n,m}? */
 	OpEscControlChars        = Op(1 << 26) /* \n,\r,\t,\a ... */
 	OpEscCControl            = Op(1 << 27) /* \cx  */
 	OpEscOctal3              = Op(1 << 28) /* \OOO */
@@ -56,7 +56,7 @@ const (
 	Op2EscVVtab               = Op2(1 << 13) /* \v as VTAB */
 	Op2EscUHex4               = Op2(1 << 14) /* \\uHHHH */
 	Op2EscGnuBufAnchor        = Op2(1 << 15) /* \`, \' */
-	Op2EscPBraceCharOp2  = Op2(1 << 16)      /* \p{...}, \P{...} */
+	Op2EscPBraceCharProperty  = Op2(1 << 16) /* \p{...}, \P{...} */
 	Op2EscPBraceCircumflexNot = Op2(1 << 17) /* \p{^..}, \P{^..} */
 	/* Op2CharOp2PrefixIs = Op2(1<<18) */
 	Op2EscHXdigit                         = Op2(1 << 19) /* \h, \H */

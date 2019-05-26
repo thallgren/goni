@@ -5,8 +5,10 @@ import (
 	"github.com/lyraproj/goni/config"
 	"github.com/lyraproj/goni/err"
 	"github.com/lyraproj/goni/goni"
+	"github.com/lyraproj/goni/goni/character"
 	"github.com/lyraproj/goni/goni/syntax"
 	"github.com/lyraproj/issue/issue"
+	"strings"
 )
 
 type Lexer struct {
@@ -14,7 +16,7 @@ type Lexer struct {
 	regex  *Regex
 	env    goni.ScanEnvironment
 	syntax *goni.Syntax
-	token  *Token
+	token  Token
 }
 
 func (lx *Lexer) init(regex *Regex, syntax *goni.Syntax, bytes []byte, p, end int, warnings WarnCallback) {
@@ -112,7 +114,7 @@ func (lx *Lexer) fetchRangeQuantifier() int {
 		panic(newSyntaxException(err.UpperSmallerThanLowerInRepeatRange))
 	}
 
-	t := lx.token
+	t := &lx.token
 	t.typ = TkInterval
 	t.setRepeatLower(low)
 	t.setRepeatUpper(up)
@@ -561,250 +563,304 @@ func (lx *Lexer) strExistCheckWithEsc(s []int, n, bad int) bool {
 
 var send = []int{':', ']'}
 
-func (lx *Lexer) fetchTokenInCCFor_charType(flag bool, typ int) {
-	token := lx.token
+func (lx *Lexer) fetchTokenInCCForCharType(flag bool, typ character.Type) {
+	token := &lx.token
 	token.typ = TkCharType
 	token.setPropCType(typ)
 	token.setPropNot(flag)
 }
 
+func (lx *Lexer) fetchTokenInCCForP() {
+	c2 := lx.peek() // !!! migrate to peekIs
+	snx := lx.syntax
+	if c2 == '{' && snx.IsOp2(syntax.Op2EscPBraceCharProperty) {
+		lx.inc()
+		token := &lx.token
+		token.typ = TkCharProperty
+		token.setPropNot(lx.c == 'P')
+
+		if snx.IsOp2(syntax.Op2EscPBraceCircumflexNot) {
+			c2 = lx.fetchTo()
+			if c2 == '^' {
+				token.setPropNot(!token.getPropNot())
+			} else {
+				lx.unfetch()
+			}
+		}
+	} else {
+		lx.syntaxCharWarn("invalid Unicode Property \\<%n>", rune(lx.c))
+	}
+}
+
+func (lx *Lexer) fetchTokenInCCForX() {
+	if !lx.left() {
+		return
+	}
+	last := lx.p
+
+	snx := lx.syntax
+	token := lx.token
+	if lx.peekIs('{') && snx.IsOp(syntax.OpEscXBraceHex8) {
+		lx.inc()
+		num := lx.scanUnsignedHexadecimalNumber(0, 8)
+		if num < 0 {
+			panic(newSyntaxException(err.CCTooBigWideCharValue))
+		}
+
+		enc := lx.enc
+		if lx.left() {
+			c2 := lx.peek()
+			if enc.IsXDigit(c2) {
+				panic(newSyntaxException(err.CCTooLongWideCharValue))
+			}
+		}
+
+		if lx.p > last+enc.Length(lx.bytes, last, lx.stop) && lx.left() && lx.peekIs('}') {
+			lx.inc()
+			token.typ = TkCodePoint
+			token.base = 16
+			token.setCode(num)
+		} else {
+			/* can't read nothing or invalid format */
+			lx.p = last
+		}
+	} else if snx.IsOp(syntax.OpEscXHex2) {
+		num := lx.scanUnsignedHexadecimalNumber(0, 2)
+		if num < 0 {
+			panic(newSyntaxException(err.TooBigNumber))
+		}
+		if lx.p == last { /* can't read nothing. */
+			num = 0 /* but, it's not error */
+		}
+		token.typ = TkRawByte
+		token.base = 16
+		token.setC(num)
+	}
+}
+
+func (lx *Lexer) fetchTokenInCCForU() {
+	if !lx.left() {
+		return
+	}
+
+	last := lx.p
+	if lx.syntax.IsOp2(syntax.Op2EscUHex4) {
+		num := lx.scanUnsignedHexadecimalNumber(4, 4)
+		if num < -1 {
+			panic(newSyntaxException(err.TooShortDigits))
+		}
+		if num < 0 {
+			panic(newSyntaxException(err.TooBigNumber))
+		}
+		if lx.p == last { /* can't read nothing. */
+			num = 0 /* but, it's not error */
+		}
+		token := lx.token
+		token.typ = TkCodePoint
+		token.base = 16
+		token.setCode(num)
+	}
+}
+
+func (lx *Lexer) fetchTokenInCCForDigit() {
+	if lx.syntax.IsOp(syntax.OpEscOctal3) {
+		lx.unfetch()
+		last := lx.p
+		num := lx.scanUnsignedOctalNumber(3)
+		if num < 0 || num > 0xff {
+			panic(newSyntaxException(err.TooBigNumber))
+		}
+		if lx.p == last { /* can't read nothing. */
+			num = 0 /* but, it's not error */
+		}
+		token := lx.token
+		token.typ = TkRawByte
+		token.base = 8
+		token.setC(num)
+	}
+}
+
+func (lx *Lexer) fetchTokenInCCForPosixBracket() {
+	snx := lx.syntax
+	if snx.IsOp(syntax.OpPosixBracket) && lx.peekIs(':') {
+		lx.token.backP = lx.p /* point at '[' is readed */
+		lx.inc()
+		if lx.strExistCheckWithEsc(send, len(send), ']') {
+			lx.token.typ = TkPosixBracketOpen
+		} else {
+			lx.unfetch()
+			// remove duplication, goto cc_in_cc;
+			if snx.IsOp2(syntax.Op2CClassSetOp) {
+				lx.token.typ = TkCcCcOpen
+			} else {
+				lx.env.CCEscWarn("[")
+			}
+		}
+	} else { // cc_in_cc:
+		if snx.IsOp2(syntax.Op2CClassSetOp) {
+			lx.token.typ = TkCcCcOpen
+		} else {
+			lx.env.CCEscWarn("[")
+		}
+	}
+}
+
+func (lx *Lexer) fetchTokenInCCForAnd() {
+	if lx.syntax.IsOp2(syntax.Op2CClassSetOp) && lx.left() && lx.peekIs('&') {
+		lx.inc()
+		lx.token.typ = TkCcAnd
+	}
+}
+
+func (lx *Lexer) fetchTokenInCC() TokenType {
+	if !lx.left() {
+		lx.token.typ = TkEOT
+		return TkEOT
+	}
+
+	lx.fetch()
+	c := lx.c
+	token := lx.token
+	token.typ = TkChar
+	token.base = 0
+	token.setC(c)
+	token.escaped = false
+
+	if c == ']' {
+		token.typ = TkCcClose
+	} else if c == '-' {
+		token.typ = TkCcRange
+	} else if c == lx.syntax.MetaCharTable.Esc {
+		snx := lx.syntax
+		if !snx.IsBehavior(syntax.BackslashEscapeInCC) {
+			return token.typ
+		}
+		if !lx.left() {
+			panic(newSyntaxException(err.EndPatternAtEscape))
+		}
+		lx.fetch()
+		c = lx.c
+		token.escaped = true
+		token.setC(c)
+
+		switch c {
+		case 'w':
+			lx.fetchTokenInCCForCharType(false, character.Word)
+		case 'W':
+			lx.fetchTokenInCCForCharType(true, character.Word)
+		case 'd':
+			lx.fetchTokenInCCForCharType(false, character.Digit)
+		case 'D':
+			lx.fetchTokenInCCForCharType(true, character.Digit)
+		case 's':
+			lx.fetchTokenInCCForCharType(false, character.Space)
+		case 'S':
+			lx.fetchTokenInCCForCharType(true, character.Space)
+		case 'h':
+			if snx.IsOp2(syntax.Op2EscHXdigit) {
+				lx.fetchTokenInCCForCharType(false, character.Xdigit)
+			}
+		case 'H':
+			if snx.IsOp2(syntax.Op2EscHXdigit) {
+				lx.fetchTokenInCCForCharType(true, character.Xdigit)
+			}
+		case 'p', 'P':
+			lx.fetchTokenInCCForP()
+		case 'x':
+			lx.fetchTokenInCCForX()
+		case 'u':
+			lx.fetchTokenInCCForU()
+		case '0', '1', '2', '3', '4', '5', '6', '7':
+			lx.fetchTokenInCCForDigit()
+		default:
+			lx.unfetch()
+			lx.fetchEscapedValue()
+			if token.getC() != c {
+				token.setCode(c)
+				token.typ = TkCodePoint
+			}
+		}
+	} else if c == '[' {
+		lx.fetchTokenInCCForPosixBracket()
+	} else if c == '&' {
+		lx.fetchTokenInCCForAnd()
+	}
+	return token.typ
+}
+
+func (lx *Lexer) backrefRelToAbs(relNo int) int {
+	return lx.env.NumMem() + 1 + relNo
+}
+
+func (lx *Lexer) fetchTokenForRepeat(lower, upper int) {
+	token := &lx.token
+	token.typ = TkOpRepeat
+	token.setRepeatLower(lower)
+	token.setRepeatUpper(upper)
+	lx.greedyCheck()
+}
+
+func (lx *Lexer) fetchTokenForOpenBrace() {
+	switch lx.fetchRangeQuantifier() {
+	case 0:
+		lx.greedyCheck()
+	case 2:
+		if lx.syntax.IsBehavior(syntax.FixedIntervalIsGreedyOnly) {
+			lx.possessiveCheck()
+		} else {
+			lx.greedyCheck()
+		}
+	default: /* 1 : normal char */
+	}
+}
+
+func (lx *Lexer) fetchTokenForAnchor(subType int) {
+	lx.token.typ = TkAnchor
+	lx.token.setAnchorSubtype(subType)
+}
+
+func (lx *Lexer) fetchTokenForXBrace() {
+	if !lx.left() {
+		return
+	}
+
+	last := lx.p
+	token := &lx.token
+	if lx.peekIs('{') && lx.syntax.IsOp(syntax.OpEscXBraceHex8) {
+		lx.inc()
+		num := lx.scanUnsignedHexadecimalNumber(0, 8)
+		if num < 0 {
+			panic(newSyntaxException(err.CCTooBigWideCharValue))
+		}
+		if lx.left() {
+			if lx.enc.IsXDigit(lx.peek()) {
+				panic(newSyntaxException(err.CCTooLongWideCharValue))
+			}
+		}
+
+		if lx.p > last+lx.enc.Length(lx.bytes, last, lx.stop) && lx.left() && lx.peekIs('}') {
+			lx.inc()
+			token.typ = TkCodePoint
+			token.setCode(num)
+		} else {
+			/* can't read nothing or invalid format */
+			lx.p = last
+		}
+	} else if lx.syntax.IsOp(syntax.OpEscXHex2) {
+		num := lx.scanUnsignedHexadecimalNumber(0, 2)
+		if num < 0 {
+			panic(newSyntaxException(err.TooBigNumber))
+		}
+		if lx.p == last { /* can't read nothing. */
+			num = 0 /* but, it's not error */
+		}
+		token.typ = TkRawByte
+		token.base = 16
+		token.setC(num)
+	}
+}
+
 var z = `
-
-    private void fetchTokenInCCFor_p() {
-        int c2 = peek(); // !!! migrate to peekIs
-        if (c2 == '{' && syntax.op2EscPBraceCharProperty()) {
-            inc();
-            token.type = TokenType.CHAR_PROPERTY;
-            token.setPropNot(c == 'P');
-
-            if (syntax.op2EscPBraceCircumflexNot()) {
-                c2 = fetchTo();
-                if (c2 == '^') {
-                    token.setPropNot(!token.getPropNot());
-                } else {
-                    unfetch();
-                }
-            }
-        } else {
-            syntaxWarn("invalid Unicode Property \\<%n>", (char)c);
-        }
-    }
-
-    private void fetchTokenInCCFor_x() {
-        if (!left()) return;
-        int last = p;
-
-        if (peekIs('{') && syntax.opEscXBraceHex8()) {
-            inc();
-            int num = scanUnsignedHexadecimalNumber(0, 8);
-            if (num < 0) newValueException(ERR_TOO_BIG_WIDE_CHAR_VALUE);
-            if (left()) {
-                int c2 = peek();
-                if (enc.isXDigit(c2)) newValueException(ERR_TOO_LONG_WIDE_CHAR_VALUE);
-            }
-
-            if (p > last + enc.length(bytes, last, stop) && left() && peekIs('}')) {
-                inc();
-                token.type = TokenType.CODE_POINT;
-                token.base = 16;
-                token.setCode(num);
-            } else {
-                /* can't read nothing or invalid format */
-                p = last;
-            }
-        } else if (syntax.opEscXHex2()) {
-            int num = scanUnsignedHexadecimalNumber(0, 2);
-            if (num < 0) newValueException(TOO_BIG_NUMBER);
-            if (p == last) { /* can't read nothing. */
-                num = 0; /* but, it's not error */
-            }
-            token.type = TokenType.RAW_BYTE;
-            token.base = 16;
-            token.setC(num);
-        }
-    }
-
-    private void fetchTokenInCCFor_u() {
-        if (!left()) return;
-        int last = p;
-
-        if (syntax.op2EscUHex4()) {
-            int num = scanUnsignedHexadecimalNumber(4, 4);
-            if (num < -1) newValueException(TOO_SHORT_DIGITS);
-            if (num < 0) newValueException(TOO_BIG_NUMBER);
-            if (p == last) {  /* can't read nothing. */
-                num = 0; /* but, it's not error */
-            }
-            token.type = TokenType.CODE_POINT;
-            token.base = 16;
-            token.setCode(num);
-        }
-    }
-
-    private void fetchTokenInCCFor_digit() {
-        if (syntax.opEscOctal3()) {
-            unfetch();
-            int last = p;
-            int num = scanUnsignedOctalNumber(3);
-            if (num < 0 || num > 0xff) newValueException(TOO_BIG_NUMBER);
-            if (p == last) {  /* can't read nothing. */
-                num = 0; /* but, it's not error */
-            }
-            token.type = TokenType.RAW_BYTE;
-            token.base = 8;
-            token.setC(num);
-        }
-    }
-
-    private void fetchTokenInCCFor_posixBracket() {
-        if (syntax.opPosixBracket() && peekIs(':')) {
-            token.backP = p; /* point at '[' is readed */
-            inc();
-            if (strExistCheckWithEsc(send, send.length, ']')) {
-                token.type = TokenType.POSIX_BRACKET_OPEN;
-            } else {
-                unfetch();
-                // remove duplication, goto cc_in_cc;
-                if (syntax.op2CClassSetOp()) {
-                    token.type = TokenType.CC_CC_OPEN;
-                } else {
-                    env.ccEscWarn("[");
-                }
-            }
-        } else { // cc_in_cc:
-            if (syntax.op2CClassSetOp()) {
-                token.type = TokenType.CC_CC_OPEN;
-            } else {
-                env.ccEscWarn("[");
-            }
-        }
-    }
-
-    private void fetchTokenInCCFor_and() {
-        if (syntax.op2CClassSetOp() && left() && peekIs('&')) {
-            inc();
-            token.type = TokenType.CC_AND;
-        }
-    }
-
-    protected final TokenType fetchTokenInCC() {
-        if (!left()) {
-            token.type = TokenType.EOT;
-            return token.type;
-        }
-
-        fetch();
-        token.type = TokenType.CHAR;
-        token.base = 0;
-        token.setC(c);
-        token.escaped = false;
-
-        if (c == ']') {
-            token.type = TokenType.CC_CLOSE;
-        } else if (c == '-') {
-            token.type = TokenType.CC_RANGE;
-        } else if (c == syntax.metaCharTable.esc) {
-            if (!syntax.backSlashEscapeInCC()) return token.type;
-            if (!left()) newSyntaxException(END_PATTERN_AT_ESCAPE);
-            fetch();
-            token.escaped = true;
-            token.setC(c);
-
-            switch (c) {
-            case 'w':
-                fetchTokenInCCFor_charType(false, CharacterType.WORD);
-                break;
-            case 'W':
-                fetchTokenInCCFor_charType(true, CharacterType.WORD);
-                break;
-            case 'd':
-                fetchTokenInCCFor_charType(false, CharacterType.DIGIT);
-                break;
-            case 'D':
-                fetchTokenInCCFor_charType(true, CharacterType.DIGIT);
-                break;
-            case 's':
-                fetchTokenInCCFor_charType(false, CharacterType.SPACE);
-                break;
-            case 'S':
-                fetchTokenInCCFor_charType(true, CharacterType.SPACE);
-                break;
-            case 'h':
-                if (syntax.op2EscHXDigit()) fetchTokenInCCFor_charType(false, CharacterType.XDIGIT);
-                break;
-            case 'H':
-                if (syntax.op2EscHXDigit()) fetchTokenInCCFor_charType(true, CharacterType.XDIGIT);
-                break;
-            case 'p':
-            case 'P':
-                fetchTokenInCCFor_p();
-                break;
-            case 'x':
-                fetchTokenInCCFor_x();
-                break;
-            case 'u':
-                fetchTokenInCCFor_u();
-                break;
-            case '0':
-            case '1':
-            case '2':
-            case '3':
-            case '4':
-            case '5':
-            case '6':
-            case '7':
-                fetchTokenInCCFor_digit();
-                break;
-
-            default:
-                unfetch();
-                fetchEscapedValue();
-                if (token.getC() != c) {
-                    token.setCode(c);
-                    token.type = TokenType.CODE_POINT;
-                }
-                break;
-            } // switch
-
-        } else if (c == '[') {
-            fetchTokenInCCFor_posixBracket();
-        } else if (c == '&') {
-            fetchTokenInCCFor_and();
-        }
-        return token.type;
-    }
-
-    protected final int backrefRelToAbs(int relNo) {
-        return env.numMem + 1 + relNo;
-    }
-
-    private void fetchTokenFor_repeat(int lower, int upper) {
-        token.type = TokenType.OP_REPEAT;
-        token.setRepeatLower(lower);
-        token.setRepeatUpper(upper);
-        greedyCheck();
-    }
-
-    private void fetchTokenFor_openBrace() {
-        switch (fetchRangeQuantifier()) {
-        case 0:
-            greedyCheck();
-            break;
-        case 2:
-            if (syntax.fixedIntervalIsGreedyOnly()) {
-                possessiveCheck();
-            } else {
-                greedyCheck();
-            }
-            break;
-        default: /* 1 : normal char */
-        } // inner switch
-    }
-
-    private void fetchTokenFor_anchor(int subType) {
-        token.type = TokenType.ANCHOR;
-        token.setAnchorSubtype(subType);
-    }
 
     private void fetchTokenFor_xBrace() {
         if (!left()) return;
@@ -1314,58 +1370,59 @@ var z2 = `':
             break;
         } // while
     }
-
-    private void greedyCheck() {
-        if (left() && peekIs('?') && syntax.opQMarkNonGreedy()) {
-
-            fetch();
-
-            token.setRepeatGreedy(false);
-            token.setRepeatPossessive(false);
-        } else {
-            possessiveCheck();
-        }
-    }
-
-    private void possessiveCheck() {
-        if (left() && peekIs('+') &&
-            (syntax.op2PlusPossessiveRepeat() && token.type != TokenType.INTERVAL ||
-             syntax.op2PlusPossessiveInterval() && token.type == TokenType.INTERVAL)) {
-
-            fetch();
-
-            token.setRepeatGreedy(true);
-            token.setRepeatPossessive(true);
-        } else {
-            token.setRepeatGreedy(true);
-            token.setRepeatPossessive(false);
-        }
-    }
-
-    protected final int fetchCharPropertyToCType() {
-        mark();
-
-        while (left()) {
-            int last = p;
-            fetch();
-            if (c == '}') {
-                return enc.propertyNameToCType(bytes, _p, last);
-            } else if (c == '(' || c == ')' || c == '{' || c == '|') {
-                throw new CharacterPropertyException(EncodingError.ERR_INVALID_CHAR_PROPERTY_NAME, bytes, _p, last);
-            }
-        }
-        newInternalException(PARSER_BUG);
-        return 0; // not reached
-    }
-
-    protected final void syntaxWarn(String message, char c) {
-        syntaxWarn(message.replace("<%n>", Character.toString(c)));
-    }
-
-    protected final void syntaxWarn(String message) {
-        if (env.warnings != WarnCallback.NONE) {
-            env.warnings.warn(message + ": /" + new String(bytes, getBegin(), getEnd()) + "/");
-        }
-    }
 }
 `
+
+func (lx *Lexer) greedyCheck() {
+	if lx.left() && lx.peekIs('?') && lx.syntax.IsOp(syntax.OpQMarkNonGreedy) {
+		lx.fetch()
+
+		lx.token.setRepeatGreedy(false)
+		lx.token.setRepeatPossessive(false)
+	} else {
+		lx.possessiveCheck()
+	}
+}
+
+func (lx *Lexer) possessiveCheck() {
+	token := &lx.token
+	if lx.left() && lx.peekIs('+') &&
+		(lx.syntax.IsOp2(syntax.Op2PlusPossessiveRepeat) && token.typ != TkInterval ||
+			lx.syntax.IsOp2(syntax.Op2PlusPossessiveInterval) && token.typ == TkInterval) {
+
+		lx.fetch()
+
+		token.setRepeatGreedy(true)
+		lx.token.setRepeatPossessive(true)
+	} else {
+		token.setRepeatGreedy(true)
+		token.setRepeatPossessive(false)
+	}
+}
+
+func (lx *Lexer) fetchCharPropertyToCType() character.Type {
+	lx.mark()
+
+	for lx.left() {
+		last := lx.p
+		lx.fetch()
+		c := lx.c
+		if c == '}' {
+			return lx.enc.PropertyNameToCType(lx.bytes, lx._p, last)
+		}
+		if c == '(' || c == ')' || c == '{' || c == '|' {
+			panic(err.WithArgs(err.CCInvalidCharPropertyName, issue.H{`n`: string(lx.bytes[lx._p:last])}))
+		}
+	}
+	panic(err.NoArgs(err.ParserBug))
+}
+
+func (lx *Lexer) syntaxCharWarn(message string, c rune) {
+	lx.syntaxWarn(strings.ReplaceAll(message, "<%n>", string(c)))
+}
+
+func (lx *Lexer) syntaxWarn(message string) {
+	if (lx.env.Warnings() != &goni.WarnNone{}) {
+		lx.env.Warnings().Warn(message + ": /" + string(lx.bytes[lx.begin:lx.end]) + "/")
+	}
+}

@@ -74,7 +74,7 @@ const (
 	Op2QmarkTildeAbsent                   = Op2(1 << 31) /* (?~...) */
 
 	Op3OptionJava       = Op3(1 << 0) /* (?idmsux), (?-idmsux) */
-	Op3OptionEcmascript = Op3(1 << 1) /* EcmaScript quirks */
+	Op3OptionECMAScript = Op3(1 << 1) /* EcmaScript quirks */
 
 	/* syntax (behavior); */
 	ContextIndepAnchors              = Behavior(1 << 31) /* not implemented */

@@ -7,6 +7,8 @@ type ScanEnvironment interface {
 
 	CCDuplicateWarning()
 
+	ConvertBackslashValue(c int) int
+
 	Encoding() Encoding
 
 	MemNodes() []Node

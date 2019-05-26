@@ -1,7 +1,9 @@
 package internal
 
 import (
+	"github.com/lyraproj/goni/err"
 	"github.com/lyraproj/goni/goni"
+	"github.com/lyraproj/issue/issue"
 	"math"
 )
 
@@ -164,4 +166,8 @@ func (ss *scannerSupport) peekIs(c int) bool {
 
 func (ss *scannerSupport) left() bool {
 	return ss.p < ss.stop
+}
+
+func newSyntaxException(code issue.Code) issue.Reported {
+	return err.NoArgs(code)
 }

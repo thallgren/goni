@@ -1,177 +1,212 @@
 package internal
 
-import "github.com/lyraproj/goni/goni"
+import (
+	"github.com/lyraproj/goni/ast"
+	"github.com/lyraproj/goni/config"
+	"github.com/lyraproj/goni/err"
+	"github.com/lyraproj/goni/goni"
+	"github.com/lyraproj/goni/goni/syntax"
+)
 
 type Lexer struct {
 	scannerSupport
-	regex *Regex
-	env goni.ScanEnvironment
+	regex  *Regex
+	env    goni.ScanEnvironment
 	syntax *goni.Syntax
-	token *Token
+	token  *Token
 }
 
 func (lx *Lexer) init(regex *Regex, syntax *goni.Syntax, bytes []byte, p, end int, warnings WarnCallback) {
 	lx.scannerSupport.init(regex.enc, bytes, p, end)
 	lx.regex = regex
 	lx.env = NewScanEnvironment(regex, syntax, warnings)
-	lx.syntax = lx.env.Syntax()
+	lx.syntax = syntax
+}
+
+/**
+ * @return 0: normal {n,m}, 2: fixed {n}
+ * !introduce returnCode here
+ */
+func (lx *Lexer) fetchRangeQuantifier() int {
+	lx.mark()
+	snx := lx.syntax
+	synAllow := snx.IsBehavior(syntax.AllowInvalidInterval)
+
+	if !lx.left() {
+		if synAllow {
+			return 1 /* "....{" : OK! */
+		} else {
+			panic(newSyntaxException(err.EndPatternAtLeftBrace))
+		}
+	}
+
+	if !synAllow {
+		lx.c = lx.peek()
+		if lx.c == ')' || lx.c == '(' || lx.c == '|' {
+			panic(newSyntaxException(err.EndPatternAtLeftBrace))
+		}
+	}
+
+	low := lx.scanUnsignedNumber()
+	if low < 0 || low > config.MaxRepeatNum {
+		panic(newSyntaxException(err.TooBigNumberForRepeatRange))
+	}
+
+	nonLow := false
+	if lx.p == lx._p { /* can't read low */
+		if snx.IsBehavior(syntax.AllowIntervalLowAbbrev) {
+			low = 0
+			nonLow = true
+		} else {
+			return lx.invalidRangeQuantifier(synAllow)
+		}
+	}
+
+	if !lx.left() {
+		return lx.invalidRangeQuantifier(synAllow)
+	}
+
+	lx.fetch()
+	var up int
+	ret := 0
+	if lx.c == ',' {
+		prev := lx.p // ??? last
+		up := lx.scanUnsignedNumber()
+		if up < 0 || up > config.MaxRepeatNum {
+			panic(newSyntaxException(err.TooBigNumberForRepeatRange))
+		}
+
+		if lx.p == prev {
+			if nonLow {
+				return lx.invalidRangeQuantifier(synAllow)
+			}
+			up = ast.QuantifierRepeatInfinite /* {n,} : {n,infinite} */
+		}
+	} else {
+		if nonLow {
+			return lx.invalidRangeQuantifier(synAllow)
+		}
+		lx.unfetch()
+		up = low /* {n} : exact n times */
+		ret = 2  /* fixed */
+	}
+
+	if !lx.left() {
+		return lx.invalidRangeQuantifier(synAllow)
+	}
+	lx.fetch()
+
+	if snx.IsOp(syntax.OpEscBraceInterval) {
+		if lx.c != snx.MetaCharTable.Esc {
+			return lx.invalidRangeQuantifier(synAllow)
+		}
+		lx.fetch()
+	}
+
+	if lx.c != '}' {
+		return lx.invalidRangeQuantifier(synAllow)
+	}
+
+	if up != ast.QuantifierRepeatInfinite && low > up {
+		panic(newSyntaxException(err.UpperSmallerThanLowerInRepeatRange))
+	}
+
+	t := lx.token
+	t.typ = TkInterval
+	t.setRepeatLower(low)
+	t.setRepeatUpper(up)
+
+	return ret /* 0: normal {n,m}, 2: fixed {n} */
+}
+
+func (lx *Lexer) invalidRangeQuantifier(synAllow bool) int {
+	if synAllow {
+		lx.restore()
+		return 1
+	}
+	panic(newSyntaxException(err.InvalidRepeatRangePattern))
+}
+
+/* \M-, \C-, \c, or \... */
+func (lx *Lexer) fetchEscapedValue() {
+	if !lx.left() {
+		panic(newSyntaxException(err.EndPatternAtEscape))
+	}
+	lx.fetch()
+
+	snx := lx.syntax
+	switch lx.c {
+
+	case 'M':
+		if snx.IsOp2(syntax.Op2EscCapitalMBarMeta) {
+			if !lx.left() {
+				panic(newSyntaxException(err.EndPatternAtMeta))
+			}
+			lx.fetch()
+			if lx.c != '-' {
+				panic(newSyntaxException(err.MetaCodeSyntax))
+			}
+			if !lx.left() {
+				panic(newSyntaxException(err.EndPatternAtMeta))
+			}
+			lx.fetch()
+			if lx.c == snx.MetaCharTable.Esc {
+				lx.fetchEscapedValue()
+			}
+			lx.c = ((lx.c & 0xff) | 0x80)
+		} else {
+			lx.fetchEscapedValueBackSlash()
+		}
+
+	case 'C':
+		if snx.IsOp2(syntax.Op2EscCapitalCBarControl) {
+			if !lx.left() {
+				panic(newSyntaxException(err.EndPatternAtControl))
+			}
+			lx.fetch()
+			if lx.c != '-' {
+				panic(newSyntaxException(err.ControlCodeSyntax))
+			}
+			lx.fetchEscapedValueControl()
+		} else {
+			lx.fetchEscapedValueBackSlash()
+		}
+
+	case 'c':
+		if snx.IsOp(syntax.OpEscCControl) {
+			lx.fetchEscapedValueControl()
+		}
+		fallthrough
+	default:
+		lx.fetchEscapedValueBackSlash()
+	}
+}
+
+func (lx *Lexer) fetchEscapedValueBackSlash() {
+	lx.c = lx.env.ConvertBackslashValue(lx.c)
+}
+
+func (lx *Lexer) fetchEscapedValueControl() {
+	snx := lx.env.Syntax()
+	if !lx.left() {
+		if snx.IsOp3(syntax.Op3OptionECMAScript) {
+			return
+		} else {
+			panic(newSyntaxException(err.EndPatternAtControl))
+		}
+	}
+	lx.fetch()
+	if lx.c == '?' {
+		lx.c = 0177
+	} else {
+		if lx.c == snx.MetaCharTable.Esc {
+			lx.fetchEscapedValue()
+		}
+		lx.c &= 0x9f
+	}
 }
 
 var z = `
-    /**
-     * @return 0: normal {n,m}, 2: fixed {n}
-     * !introduce returnCode here
-     */
-    private int fetchRangeQuantifier() {
-        mark();
-        boolean synAllow = syntax.allowInvalidInterval();
-
-        if (!left()) {
-            if (synAllow) {
-                return 1; /* "....{" : OK! */
-            } else {
-                newSyntaxException(END_PATTERN_AT_LEFT_BRACE);
-            }
-        }
-
-        if (!synAllow) {
-            c = peek();
-            if (c == ')' || c == '(' || c == '|') {
-                newSyntaxException(END_PATTERN_AT_LEFT_BRACE);
-            }
-        }
-
-        int low = scanUnsignedNumber();
-        if (low < 0) newSyntaxException(ErrorMessages.TOO_BIG_NUMBER_FOR_REPEAT_RANGE);
-        if (low > Config.MAX_REPEAT_NUM) newSyntaxException(ErrorMessages.TOO_BIG_NUMBER_FOR_REPEAT_RANGE);
-
-        boolean nonLow = false;
-        if (p == _p) { /* can't read low */
-            if (syntax.allowIntervalLowAbbrev()) {
-                low = 0;
-                nonLow = true;
-            } else {
-                return invalidRangeQuantifier(synAllow);
-            }
-        }
-
-        if (!left()) return invalidRangeQuantifier(synAllow);
-
-        fetch();
-        int up;
-        int ret = 0;
-        if (c == ',') {
-            int prev = p; // ??? last
-            up = scanUnsignedNumber();
-            if (up < 0) newValueException(TOO_BIG_NUMBER_FOR_REPEAT_RANGE);
-            if (up > Config.MAX_REPEAT_NUM) newValueException(TOO_BIG_NUMBER_FOR_REPEAT_RANGE);
-
-            if (p == prev) {
-                if (nonLow) return invalidRangeQuantifier(synAllow);
-                up = QuantifierNode.REPEAT_INFINITE; /* {n,} : {n,infinite} */
-            }
-        } else {
-            if (nonLow) return invalidRangeQuantifier(synAllow);
-            unfetch();
-            up = low; /* {n} : exact n times */
-            ret = 2; /* fixed */
-        }
-
-        if (!left()) return invalidRangeQuantifier(synAllow);
-        fetch();
-
-        if (syntax.opEscBraceInterval()) {
-            if (c != syntax.metaCharTable.esc) return invalidRangeQuantifier(synAllow);
-            fetch();
-        }
-
-        if (c != '}') return invalidRangeQuantifier(synAllow);
-
-        if (!isRepeatInfinite(up) && low > up) {
-            newValueException(UPPER_SMALLER_THAN_LOWER_IN_REPEAT_RANGE);
-        }
-
-        token.type = TokenType.INTERVAL;
-        token.setRepeatLower(low);
-        token.setRepeatUpper(up);
-
-        return ret; /* 0: normal {n,m}, 2: fixed {n} */
-    }
-
-    private int invalidRangeQuantifier(boolean synAllow) {
-        if (synAllow) {
-            restore();
-            return 1;
-        } else {
-            newSyntaxException(INVALID_REPEAT_RANGE_PATTERN);
-            return 0; // not reached
-        }
-    }
-
-    /* \M-, \C-, \c, or \... */
-    private void fetchEscapedValue() {
-        if (!left()) newSyntaxException(END_PATTERN_AT_ESCAPE);
-        fetch();
-
-        switch(c) {
-
-        case 'M':
-            if (syntax.op2EscCapitalMBarMeta()) {
-                if (!left()) newSyntaxException(END_PATTERN_AT_META);
-                fetch();
-                if (c != '-') newSyntaxException(META_CODE_SYNTAX);
-                if (!left()) newSyntaxException(END_PATTERN_AT_META);
-                fetch();
-                if (c == syntax.metaCharTable.esc) fetchEscapedValue();
-                c = ((c & 0xff) | 0x80);
-            } else {
-                fetchEscapedValueBackSlash();
-            }
-            break;
-
-        case 'C':
-            if (syntax.op2EscCapitalCBarControl()) {
-                if (!left()) newSyntaxException(END_PATTERN_AT_CONTROL);
-                fetch();
-                if (c != '-') newSyntaxException(CONTROL_CODE_SYNTAX);
-                fetchEscapedValueControl();
-            } else {
-                fetchEscapedValueBackSlash();
-            }
-            break;
-
-        case 'c':
-            if (syntax.opEscCControl()) {
-                fetchEscapedValueControl();
-            }
-            /* fall through */
-
-        default:
-            fetchEscapedValueBackSlash();
-        } // switch
-    }
-
-    private void fetchEscapedValueBackSlash() {
-        c = env.convertBackslashValue(c);
-    }
-
-    private void fetchEscapedValueControl() {
-        if (!left()) {
-            if (syntax.op3OptionECMAScript()) {
-                return;
-            } else {
-                newSyntaxException(END_PATTERN_AT_CONTROL);
-            }
-        }
-        fetch();
-        if (c == '?') {
-            c = 0177;
-        } else {
-            if (c == syntax.metaCharTable.esc) fetchEscapedValue();
-            c &= 0x9f;
-        }
-    }
-
     private int nameEndCodePoint(int start) {
         switch(start) {
         case '<':

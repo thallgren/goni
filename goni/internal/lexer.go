@@ -5,7 +5,9 @@ import (
 	"github.com/lyraproj/goni/config"
 	"github.com/lyraproj/goni/err"
 	"github.com/lyraproj/goni/goni"
+	"github.com/lyraproj/goni/goni/anchor"
 	"github.com/lyraproj/goni/goni/character"
+	"github.com/lyraproj/goni/goni/metachar"
 	"github.com/lyraproj/goni/goni/syntax"
 	"github.com/lyraproj/issue/issue"
 	"strings"
@@ -230,13 +232,8 @@ func (lx *Lexer) nameEndCodePoint(start int) int {
    \k<-num+n>, \k<-num-n>
 */
 
-// value implicit (rnameEnd)
-
-type Ptr *int
-
-func (lx *Lexer) fetchNameWithLevel(startCode int, rbackNum, rlevel Ptr) bool {
+func (lx *Lexer) fetchNameWithLevel(startCode int) (existLevel bool, backnum, level int) {
 	src := lx.p
-	existLevel := false
 	isNum := 0
 	sign := 1
 
@@ -299,7 +296,7 @@ func (lx *Lexer) fetchNameWithLevel(startCode int, rbackNum, rlevel Ptr) bool {
 			if level < 0 {
 				panic(newSyntaxException(err.TooBigNumber))
 			}
-			*rlevel = level * flag
+			level = level * flag
 			existLevel = true
 
 			lx.fetch()
@@ -327,10 +324,10 @@ func (lx *Lexer) fetchNameWithLevel(startCode int, rbackNum, rlevel Ptr) bool {
 		if backNum == 0 {
 			panic(lx.newValueException(err.InvalidGroupName, src, lx.stop))
 		}
-		*rbackNum = backNum * sign
+		backNum = backNum * sign
 	}
 	lx.value = nameEnd
-	return existLevel
+	return
 }
 
 // USE_NAMED_GROUP
@@ -514,6 +511,7 @@ func (lx *Lexer) fetchNameForNoNamedGroup(startCode int, ref bool) int {
 }
 
 func (lx *Lexer) fetchName(startCode int, ref bool) int {
+	//noinspection GoBoolExpressions
 	if config.UseNamedGroup {
 		return lx.fetchNameForNamedGroup(startCode, ref)
 	} else {
@@ -757,12 +755,12 @@ func (lx *Lexer) fetchTokenInCC() TokenType {
 		case 'S':
 			lx.fetchTokenInCCForCharType(true, character.Space)
 		case 'h':
-			if snx.IsOp2(syntax.Op2EscHXdigit) {
-				lx.fetchTokenInCCForCharType(false, character.Xdigit)
+			if snx.IsOp2(syntax.Op2EscHXDigit) {
+				lx.fetchTokenInCCForCharType(false, character.XDigit)
 			}
 		case 'H':
-			if snx.IsOp2(syntax.Op2EscHXdigit) {
-				lx.fetchTokenInCCForCharType(true, character.Xdigit)
+			if snx.IsOp2(syntax.Op2EscHXDigit) {
+				lx.fetchTokenInCCForCharType(true, character.XDigit)
 			}
 		case 'p', 'P':
 			lx.fetchTokenInCCForP()
@@ -814,7 +812,7 @@ func (lx *Lexer) fetchTokenForOpenBrace() {
 	}
 }
 
-func (lx *Lexer) fetchTokenForAnchor(subType int) {
+func (lx *Lexer) fetchTokenForAnchor(subType anchor.Type) {
 	lx.token.typ = TkAnchor
 	lx.token.setAnchorSubtype(subType)
 }
@@ -825,28 +823,29 @@ func (lx *Lexer) fetchTokenForXBrace() {
 	}
 
 	last := lx.p
-	token := &lx.token
-	if lx.peekIs('{') && lx.syntax.IsOp(syntax.OpEscXBraceHex8) {
+	snx := lx.syntax
+	if lx.peekIs('{') && snx.IsOp(syntax.OpEscXBraceHex8) {
 		lx.inc()
 		num := lx.scanUnsignedHexadecimalNumber(0, 8)
 		if num < 0 {
 			panic(newSyntaxException(err.CCTooBigWideCharValue))
 		}
+		enc := lx.enc
 		if lx.left() {
-			if lx.enc.IsXDigit(lx.peek()) {
+			if enc.IsXDigit(lx.peek()) {
 				panic(newSyntaxException(err.CCTooLongWideCharValue))
 			}
 		}
 
-		if lx.p > last+lx.enc.Length(lx.bytes, last, lx.stop) && lx.left() && lx.peekIs('}') {
+		if lx.p > last+enc.Length(lx.bytes, last, lx.stop) && lx.left() && lx.peekIs('}') {
 			lx.inc()
-			token.typ = TkCodePoint
-			token.setCode(num)
+			lx.token.typ = TkCodePoint
+			lx.token.setCode(num)
 		} else {
 			/* can't read nothing or invalid format */
 			lx.p = last
 		}
-	} else if lx.syntax.IsOp(syntax.OpEscXHex2) {
+	} else if snx.IsOp(syntax.OpEscXHex2) {
 		num := lx.scanUnsignedHexadecimalNumber(0, 2)
 		if num < 0 {
 			panic(newSyntaxException(err.TooBigNumber))
@@ -854,524 +853,565 @@ func (lx *Lexer) fetchTokenForXBrace() {
 		if lx.p == last { /* can't read nothing. */
 			num = 0 /* but, it's not error */
 		}
-		token.typ = TkRawByte
-		token.base = 16
-		token.setC(num)
+		lx.token.typ = TkRawByte
+		lx.token.base = 16
+		lx.token.setC(num)
 	}
 }
 
-var z = `
+func (lx *Lexer) fetchTokenForUHex() {
+	if !lx.left() {
+		return
+	}
 
-    private void fetchTokenFor_xBrace() {
-        if (!left()) return;
-
-        int last = p;
-        if (peekIs('{') && syntax.opEscXBraceHex8()) {
-            inc();
-            int num = scanUnsignedHexadecimalNumber(0, 8);
-            if (num < 0) newValueException(ERR_TOO_BIG_WIDE_CHAR_VALUE);
-            if (left()) {
-                if (enc.isXDigit(peek())) newValueException(ERR_TOO_LONG_WIDE_CHAR_VALUE);
-            }
-
-            if (p > last + enc.length(bytes, last, stop) && left() && peekIs('}')) {
-                inc();
-                token.type = TokenType.CODE_POINT;
-                token.setCode(num);
-            } else {
-                /* can't read nothing or invalid format */
-                p = last;
-            }
-        } else if (syntax.opEscXHex2()) {
-            int num = scanUnsignedHexadecimalNumber(0, 2);
-            if (num < 0) newValueException(TOO_BIG_NUMBER);
-            if (p == last) { /* can't read nothing. */
-                num = 0; /* but, it's not error */
-            }
-            token.type = TokenType.RAW_BYTE;
-            token.base = 16;
-            token.setC(num);
-        }
-    }
-
-    private void fetchTokenFor_uHex() {
-        if (!left()) return;
-        int last = p;
-
-        if (syntax.op2EscUHex4()) {
-            int num = scanUnsignedHexadecimalNumber(4, 4);
-            if (num < -1) newValueException(TOO_SHORT_DIGITS);
-            if (num < 0) newValueException(TOO_BIG_NUMBER);
-            if (p == last) { /* can't read nothing. */
-                num = 0; /* but, it's not error */
-            }
-            token.type = TokenType.CODE_POINT;
-            token.base = 16;
-            token.setCode(num);
-        }
-    }
-
-    private void fetchTokenFor_digit() {
-        unfetch();
-        int last = p;
-        int num = scanUnsignedNumber();
-        if (num < 0 || num > Config.MAX_BACKREF_NUM) { // goto skip_backref
-        } else if (syntax.opDecimalBackref() && (num <= env.numMem || num <= 9)) { /* This spec. from GNU regex */
-            if (syntax.strictCheckBackref()) {
-                if (num > env.numMem || env.memNodes == null || env.memNodes[num] == null) newValueException(INVALID_BACKREF);
-            }
-            token.type = TokenType.BACKREF;
-            token.setBackrefNum(1);
-            token.setBackrefRef1(num);
-            token.setBackrefByName(false);
-            if (Config.USE_BACKREF_WITH_LEVEL) token.setBackrefExistLevel(false);
-            return;
-        }
-
-        if (c == '8' || c == '9') { /* normal char */ // skip_backref:
-            p = last;
-            inc();
-            return;
-        }
-        p = last;
-
-        fetchTokenFor_zero(); /* fall through */
-    }
-
-    private void fetchTokenFor_zero() {
-        if (syntax.opEscOctal3()) {
-            int last = p;
-            int num = scanUnsignedOctalNumber(c == '0' ? 2 : 3);
-            if (num < 0 || num > 0xff) newValueException(TOO_BIG_NUMBER);
-            if (p == last) { /* can't read nothing. */
-                num = 0; /* but, it's not error */
-            }
-            token.type = TokenType.RAW_BYTE;
-            token.base = 8;
-            token.setC(num);
-        } else if (c != '0') {
-            inc();
-        }
-    }
-
-    private void fetchTokenFor_NamedBackref() {
-        if (Config.USE_NAMED_GROUP) {
-            if (syntax.op2EscKNamedBackref() && left()) {
-                fetch();
-                if (c =='<' || c == '\'') {
-                    fetchNamedBackrefToken();
-                } else {
-                    unfetch();
-                    syntaxWarn("invalid back reference");
-                }
-            }
-        }
-    }
-
-    private void fetchTokenFor_subexpCall() {
-        if (Config.USE_NAMED_GROUP) {
-            if (syntax.op2EscGBraceBackref() && left()) {
-                fetch();
-                if (c == '{') {
-                    fetchNamedBackrefToken();
-                } else {
-                    unfetch();
-                }
-            }
-        }
-        if (Config.USE_SUBEXP_CALL) {
-            if (syntax.op2EscGSubexpCall() && left()) {
-                fetch();
-                if (c == '<' || c == '\'') {
-                    int gNum = -1;
-                    boolean rel = false;
-                    int cnext = peek();
-                    int nameEnd = 0;
-                    if (cnext == '0') {
-                        inc();
-                        if (peekIs(nameEndCodePoint(c))) { /* \g<0>, \g'0' */
-                            inc();
-                            nameEnd = p;
-                            gNum = 0;
-                        }
-                    } else if (cnext == '+') {
-                        inc();
-                        rel = true;
-                    }
-                    int prev = p;
-                    if (gNum < 0) {
-                        gNum = fetchName(c, true);
-                        nameEnd = value;
-                    }
-                    token.type = TokenType.CALL;
-                    token.setCallNameP(prev);
-                    token.setCallNameEnd(nameEnd);
-                    token.setCallGNum(gNum);
-                    token.setCallRel(rel);
-                } else {
-                    syntaxWarn("invalid subexp call");
-                    unfetch();
-                }
-            }
-        }
-    }
-
-    protected void fetchNamedBackrefToken() {
-        int last = p;
-        int backNum;
-        if (Config.USE_BACKREF_WITH_LEVEL) {
-            Ptr rbackNum = new Ptr();
-            Ptr rlevel = new Ptr();
-            token.setBackrefExistLevel(fetchNameWithLevel(c, rbackNum, rlevel));
-            token.setBackrefLevel(rlevel.p);
-            backNum = rbackNum.p;
-        } else {
-            backNum = fetchName(c, true);
-        } // USE_BACKREF_AT_LEVEL
-        int nameEnd = value; // set by fetchNameWithLevel/fetchName
-
-        if (backNum != 0) {
-            if (backNum < 0) {
-                backNum = backrefRelToAbs(backNum);
-                if (backNum <= 0) newValueException(INVALID_BACKREF);
-            }
-
-            if (syntax.strictCheckBackref() && (backNum > env.numMem || env.memNodes == null)) {
-                newValueException(INVALID_BACKREF);
-            }
-            token.type = TokenType.BACKREF;
-            token.setBackrefByName(false);
-            token.setBackrefNum(1);
-            token.setBackrefRef1(backNum);
-        } else {
-            NameEntry e = regex.nameToGroupNumbers(bytes, last, nameEnd);
-            if (e == null) newValueException(UNDEFINED_NAME_REFERENCE, last, nameEnd);
-
-            if (syntax.strictCheckBackref()) {
-                if (e.backNum == 1) {
-                    if (e.backRef1 > env.numMem ||
-                        env.memNodes == null ||
-                        env.memNodes[e.backRef1] == null) newValueException(INVALID_BACKREF);
-                } else {
-                    for (int i=0; i<e.backNum; i++) {
-                        if (e.backRefs[i] > env.numMem ||
-                            env.memNodes == null ||
-                            env.memNodes[e.backRefs[i]] == null) newValueException(INVALID_BACKREF);
-                    }
-                }
-            }
-
-            token.type = TokenType.BACKREF;
-            token.setBackrefByName(true);
-
-            if (e.backNum == 1) {
-                token.setBackrefNum(1);
-                token.setBackrefRef1(e.backRef1);
-            } else {
-                token.setBackrefNum(e.backNum);
-                token.setBackrefRefs(e.backRefs);
-            }
-        }
-    }
-
-    private void fetchTokenFor_charProperty() {
-        if (peekIs('{') && syntax.op2EscPBraceCharProperty()) {
-            inc();
-            token.type = TokenType.CHAR_PROPERTY;
-            token.setPropNot(c == 'P');
-
-            if (syntax.op2EscPBraceCircumflexNot()) {
-                fetch();
-                if (c == '^') {
-                    token.setPropNot(!token.getPropNot());
-                } else {
-                    unfetch();
-                }
-            }
-        } else {
-            syntaxWarn("invalid Unicode Property \\<%n>", (char)c);
-        }
-    }
-
-    private void fetchTokenFor_metaChars() {
-        if (c == syntax.metaCharTable.anyChar) {
-            token.type = TokenType.ANYCHAR;
-        } else if (c == syntax.metaCharTable.anyTime) {
-            fetchTokenFor_repeat(0, QuantifierNode.REPEAT_INFINITE);
-        }  else if (c == syntax.metaCharTable.zeroOrOneTime) {
-            fetchTokenFor_repeat(0, 1);
-        } else if (c == syntax.metaCharTable.oneOrMoreTime) {
-            fetchTokenFor_repeat(1, QuantifierNode.REPEAT_INFINITE);
-        } else if (c == syntax.metaCharTable.anyCharAnyTime) {
-            token.type = TokenType.ANYCHAR_ANYTIME;
-            // goto out
-        }
-    }
-
-    protected final void fetchToken() {
-        int src = p;
-        // mark(); // out
-        start:
-        while(true) {
-            if (!left()) {
-                token.type = TokenType.EOT;
-                return;
-            }
-
-            token.type = TokenType.STRING;
-            token.base = 0;
-            token.backP = p;
-
-            fetch();
-
-            if (c == syntax.metaCharTable.esc && !syntax.op2IneffectiveEscape()) { // IS_MC_ESC_CODE(code, syn)
-                if (!left()) newSyntaxException(END_PATTERN_AT_ESCAPE);
-
-                token.backP = p;
-                fetch();
-
-                token.setC(c);
-                token.escaped = true;
-                switch(c) {
-
-                case '*':
-                    if (syntax.opEscAsteriskZeroInf()) fetchTokenFor_repeat(0, QuantifierNode.REPEAT_INFINITE);
-                    break;
-                case '+':
-                    if (syntax.opEscPlusOneInf()) fetchTokenFor_repeat(1, QuantifierNode.REPEAT_INFINITE);
-                    break;
-                case '?':
-                    if (syntax.opEscQMarkZeroOne()) fetchTokenFor_repeat(0, 1);
-                    break;
-                case '{':
-                    if (syntax.opEscBraceInterval()) fetchTokenFor_openBrace();
-                    break;
-                case '|':
-                    if (syntax.opEscVBarAlt()) token.type = TokenType.ALT;
-                    break;
-                case '(':
-                    if (syntax.opEscLParenSubexp()) token.type = TokenType.SUBEXP_OPEN;
-                    break;
-                case ')':
-                    if (syntax.opEscLParenSubexp()) token.type = TokenType.SUBEXP_CLOSE;
-                    break;
-                case 'w':
-                    if (syntax.opEscWWord()) fetchTokenInCCFor_charType(false, CharacterType.WORD);
-                    break;
-                case 'W':
-                    if (syntax.opEscWWord()) fetchTokenInCCFor_charType(true, CharacterType.WORD);
-                    break;
-                case 'b':
-                    if (syntax.opEscBWordBound()) {
-                        fetchTokenFor_anchor(AnchorType.WORD_BOUND);
-                        token.setAnchorASCIIRange(isAsciiRange(env.option) && !isWordBoundAllRange(env.option));
-                    }
-                    break;
-                case 'B':
-                    if (syntax.opEscBWordBound()) {
-                        fetchTokenFor_anchor(AnchorType.NOT_WORD_BOUND);
-                        token.setAnchorASCIIRange(isAsciiRange(env.option) && !isWordBoundAllRange(env.option));
-                    }
-                    break;
-                case '<':
-                    if (Config.USE_WORD_BEGIN_END && syntax.opEscLtGtWordBeginEnd()) {
-                        fetchTokenFor_anchor(AnchorType.WORD_BEGIN);
-                        token.setAnchorASCIIRange(isAsciiRange(env.option));
-                    }
-                    break;
-                case '>':
-                    if (Config.USE_WORD_BEGIN_END && syntax.opEscLtGtWordBeginEnd()) {
-                        fetchTokenFor_anchor(AnchorType.WORD_END);
-                        token.setAnchorASCIIRange(isAsciiRange(env.option));
-                    }
-                    break;
-                case 's':
-                    if (syntax.opEscSWhiteSpace()) fetchTokenInCCFor_charType(false, CharacterType.SPACE);
-                    break;
-                case 'S':
-                    if (syntax.opEscSWhiteSpace()) fetchTokenInCCFor_charType(true, CharacterType.SPACE);
-                    break;
-                case 'd':
-                    if (syntax.opEscDDigit()) fetchTokenInCCFor_charType(false, CharacterType.DIGIT);
-                    break;
-                case 'D':
-                    if (syntax.opEscDDigit()) fetchTokenInCCFor_charType(true, CharacterType.DIGIT);
-                    break;
-                case 'h':
-                    if (syntax.op2EscHXDigit()) fetchTokenInCCFor_charType(false, CharacterType.XDIGIT);
-                    break;
-                case 'H':
-                    if (syntax.op2EscHXDigit()) fetchTokenInCCFor_charType(true, CharacterType.XDIGIT);
-                    break;
-                case 'A':
-                    if (syntax.opEscAZBufAnchor()) fetchTokenFor_anchor(AnchorType.BEGIN_BUF);
-                    break;
-                case 'Z':
-                    if (syntax.opEscAZBufAnchor()) fetchTokenFor_anchor(AnchorType.SEMI_END_BUF);
-                    break;
-                case 'z':
-                    if (syntax.opEscAZBufAnchor()) fetchTokenFor_anchor(AnchorType.END_BUF);
-                    break;
-                case 'G':
-                    if (syntax.opEscCapitalGBeginAnchor()) fetchTokenFor_anchor(AnchorType.BEGIN_POSITION);
-                    break;`
-var z2 = `':
-                    if (syntax.op2EscGnuBufAnchor()) fetchTokenFor_anchor(AnchorType.BEGIN_BUF);
-                    break;
-                case '\'':
-                    if (syntax.op2EscGnuBufAnchor()) fetchTokenFor_anchor(AnchorType.END_BUF);
-                    break;
-                case 'x':
-                    fetchTokenFor_xBrace();
-                    break;
-                case 'u':
-                    fetchTokenFor_uHex();
-                    break;
-                case '1':
-                case '2':
-                case '3':
-                case '4':
-                case '5':
-                case '6':
-                case '7':
-                case '8':
-                case '9':
-                    fetchTokenFor_digit();
-                    break;
-                case '0':
-                    fetchTokenFor_zero();
-                    break;
-                case 'k':
-                    fetchTokenFor_NamedBackref();
-                    break;
-                case 'g':
-                    fetchTokenFor_subexpCall();
-                    break;
-                case 'Q':
-                    if (syntax.op2EscCapitalQQuote()) token.type = TokenType.QUOTE_OPEN;
-                    break;
-                case 'p':
-                case 'P':
-                    fetchTokenFor_charProperty();
-                    break;
-                case 'R':
-                    if (syntax.op2EscCapitalRLinebreak()) token.type = TokenType.LINEBREAK;
-                    break;
-                case 'X':
-                    if (syntax.op2EscCapitalXExtendedGraphemeCluster()) token.type = TokenType.EXTENDED_GRAPHEME_CLUSTER;
-                    break;
-                case 'K':
-                    if (syntax.op2EscCapitalKKeep()) token.type = TokenType.KEEP;
-                    break;
-                default:
-                    unfetch();
-                    fetchEscapedValue();
-                    if (token.getC() != c) { /* set_raw: */
-                        token.type = TokenType.CODE_POINT;
-                        token.setCode(c);
-                    } else { /* string */
-                        p = token.backP + enc.length(bytes, token.backP, stop);
-                    }
-                    break;
-                } // switch (c)
-            } else {
-                token.setC(c);
-                token.escaped = false;
-
-                if (Config.USE_VARIABLE_META_CHARS && (c != MetaChar.INEFFECTIVE_META_CHAR && syntax.opVariableMetaCharacters())) {
-                    fetchTokenFor_metaChars();
-                    break;
-                }
-
-                {
-                    switch(c) {
-                    case '.':
-                        if (syntax.opDotAnyChar()) token.type = TokenType.ANYCHAR;
-                        break;
-                    case '*':
-                        if (syntax.opAsteriskZeroInf()) fetchTokenFor_repeat(0, QuantifierNode.REPEAT_INFINITE);
-                        break;
-                    case '+':
-                        if (syntax.opPlusOneInf()) fetchTokenFor_repeat(1, QuantifierNode.REPEAT_INFINITE);
-                        break;
-                    case '?':
-                        if (syntax.opQMarkZeroOne()) fetchTokenFor_repeat(0, 1);
-                        break;
-                    case '{':
-                        if (syntax.opBraceInterval()) fetchTokenFor_openBrace();
-                        break;
-                    case '|':
-                        if (syntax.opVBarAlt()) token.type = TokenType.ALT;
-                        break;
-
-                    case '(':
-                        if (peekIs('?') && syntax.op2QMarkGroupEffect()) {
-                            inc();
-                            if (peekIs('#')) {
-                                fetch();
-                                while (true) {
-                                    if (!left()) newSyntaxException(END_PATTERN_IN_GROUP);
-                                    fetch();
-                                    if (c == syntax.metaCharTable.esc) {
-                                        if (left()) fetch();
-                                    } else {
-                                        if (c == ')') break;
-                                    }
-                                }
-                                continue start; // goto start
-                            }
-                            unfetch();
-                        }
-
-                        if (syntax.opLParenSubexp()) token.type = TokenType.SUBEXP_OPEN;
-                        break;
-                    case ')':
-                        if (syntax.opLParenSubexp()) token.type = TokenType.SUBEXP_CLOSE;
-                        break;
-                    case '^':
-                        if (syntax.opLineAnchor()) fetchTokenFor_anchor(isSingleline(env.option) ? AnchorType.BEGIN_BUF : AnchorType.BEGIN_LINE);
-                        break;
-                    case '$':
-                        if (syntax.opLineAnchor()) fetchTokenFor_anchor(isSingleline(env.option) ? AnchorType.SEMI_END_BUF : AnchorType.END_LINE);
-                        break;
-                    case '[':
-                        if (syntax.opBracketCC()) token.type = TokenType.CC_OPEN;
-                        break;
-                    case ']':
-                        if (src > getBegin()) { /* /].../ is allowed. */
-                            env.closeBracketWithoutEscapeWarn("]");
-                        }
-                        break;
-                    case '#':
-                        if (Option.isExtend(env.option)) {
-                            while (left()) {
-                                fetch();
-                                if (enc.isNewLine(c)) break;
-                            }
-                            continue start; // goto start
-                        }
-                        break;
-
-                    case ' ':
-                    case '\t':
-                    case '\n':
-                    case '\r':
-                    case '\f':
-                        if (Option.isExtend(env.option)) continue start; // goto start
-                        break;
-
-                    default: // string
-                        break;
-
-                    } // switch
-                }
-            }
-
-            break;
-        } // while
-    }
+	last := lx.p
+	if lx.syntax.IsOp2(syntax.Op2EscUHex4) {
+		num := lx.scanUnsignedHexadecimalNumber(4, 4)
+		if num < -1 {
+			panic(newSyntaxException(err.TooShortDigits))
+		}
+		if num < 0 {
+			panic(newSyntaxException(err.TooBigNumber))
+		}
+		if lx.p == last { /* can't read nothing. */
+			num = 0 /* but, it's not error */
+		}
+		lx.token.typ = TkCodePoint
+		lx.token.base = 16
+		lx.token.setCode(num)
+	}
 }
-`
+
+func (lx *Lexer) fetchTokenForDigit() {
+	lx.unfetch()
+	last := lx.p
+	num := lx.scanUnsignedNumber()
+	if num < 0 || num > config.MaxBackrefNum { // goto skip_backref
+	} else {
+		snx := lx.syntax
+		env := lx.env
+		if snx.IsOp(syntax.OpDecimalBackref) && (num <= env.NumMem() || num <= 9) { /* This spec. from GNU regex */
+			if snx.IsBehavior(syntax.StrictCheckBackref) {
+				if num > env.NumMem() || env.MemNodes() == nil || env.MemNodes()[num] == nil {
+					panic(newSyntaxException(err.InvalidBackref))
+				}
+			}
+			lx.token.typ = TkBackRef
+			lx.token.setBackrefNum(1)
+			lx.token.setBackrefRef1(num)
+			lx.token.setBackrefByName(false)
+			//noinspection GoBoolExpressions
+			if config.UseBackrefWithLevel {
+				lx.token.setBackrefExistLevel(false)
+			}
+			return
+		}
+	}
+
+	if lx.c == '8' || lx.c == '9' { /* normal char */ // skip_backref:
+		lx.p = last
+		lx.inc()
+		return
+	}
+	lx.p = last
+
+	lx.fetchTokenForZero() /* fall through */
+}
+
+func (lx *Lexer) fetchTokenForZero() {
+	if lx.syntax.IsOp(syntax.OpEscOctal3) {
+		last := lx.p
+		n := 3
+		if lx.c == '0' {
+			n = 2
+		}
+		num := lx.scanUnsignedOctalNumber(n)
+		if num < 0 || num > 0xff {
+			panic(newSyntaxException(err.TooBigNumber))
+		}
+		if lx.p == last { /* can't read nothing. */
+			num = 0 /* but, it's not error */
+		}
+		lx.token.typ = TkRawByte
+		lx.token.base = 8
+		lx.token.setC(num)
+	} else if lx.c != '0' {
+		lx.inc()
+	}
+}
+
+func (lx *Lexer) fetchTokenForNamedBackref() {
+	//noinspection GoBoolExpressions
+	if config.UseNamedGroup {
+		if lx.syntax.IsOp2(syntax.Op2EscKNamedBackref) && lx.left() {
+			lx.fetch()
+			if lx.c == '<' || lx.c == '\'' {
+				lx.fetchNamedBackrefToken()
+			} else {
+				lx.unfetch()
+				lx.syntaxWarn("invalid back reference")
+			}
+		}
+	}
+}
+
+func (lx *Lexer) fetchTokenForSubexpCall() {
+	snx := lx.syntax
+	//noinspection GoBoolExpressions
+	if config.UseNamedGroup {
+		if snx.IsOp2(syntax.Op2EscGBraceBackref) && lx.left() {
+			lx.fetch()
+			if lx.c == '{' {
+				lx.fetchNamedBackrefToken()
+			} else {
+				lx.unfetch()
+			}
+		}
+	}
+	//noinspection GoBoolExpressions
+	if config.UseSubExpCall {
+		if snx.IsOp2(syntax.Op2EscGSubexpCall) && lx.left() {
+			lx.fetch()
+			if lx.c == '<' || lx.c == '\'' {
+				gNum := -1
+				rel := false
+				cnext := lx.peek()
+				nameEnd := 0
+				if cnext == '0' {
+					lx.inc()
+					if lx.peekIs(lx.nameEndCodePoint(lx.c)) { /* \g<0>, \g'0' */
+						lx.inc()
+						nameEnd = lx.p
+						gNum = 0
+					}
+				} else if cnext == '+' {
+					lx.inc()
+					rel = true
+				}
+				prev := lx.p
+				if gNum < 0 {
+					gNum = lx.fetchName(lx.c, true)
+					nameEnd = lx.value
+				}
+				lx.token.typ = TkCall
+				lx.token.setCallNameP(prev)
+				lx.token.setCallNameEnd(nameEnd)
+				lx.token.setCallGNum(gNum)
+				lx.token.setCallRel(rel)
+			} else {
+				lx.syntaxWarn("invalid subexp call")
+				lx.unfetch()
+			}
+		}
+	}
+}
+
+func (lx *Lexer) fetchNamedBackrefToken() {
+	last := lx.p
+	snx := lx.syntax
+	env := lx.env
+
+	var backNum int
+	//noinspection GoBoolExpressions
+	if config.UseBackrefWithLevel {
+		var level int
+		var existLevel bool
+		existLevel, backNum, level = lx.fetchNameWithLevel(lx.c)
+		lx.token.setBackrefExistLevel(existLevel)
+		lx.token.setBackrefLevel(level)
+	} else {
+		backNum = lx.fetchName(lx.c, true)
+	} // USE_BACKREF_AT_LEVEL
+	nameEnd := lx.value // set by fetchNameWithLevel/fetchName
+
+	if backNum != 0 {
+		if backNum < 0 {
+			backNum = lx.backrefRelToAbs(backNum)
+			if backNum <= 0 {
+				panic(newSyntaxException(err.InvalidBackref))
+			}
+		}
+
+		if snx.IsBehavior(syntax.StrictCheckBackref) && (backNum > env.NumMem() || env.MemNodes() == nil) {
+			panic(newSyntaxException(err.InvalidBackref))
+		}
+		lx.token.typ = TkBackRef
+		lx.token.setBackrefByName(false)
+		lx.token.setBackrefNum(1)
+		lx.token.setBackrefRef1(backNum)
+	} else {
+		e := lx.regex.nameToGroupNumbers(lx.bytes, last, nameEnd)
+		if e == nil {
+			panic(lx.newValueException(err.UndefinedNameReference, last, nameEnd))
+		}
+		backRefs := e.BackRefs()
+		backNum = len(backRefs)
+
+		env := lx.env
+		if snx.IsBehavior(syntax.StrictCheckBackref) {
+			memNodes := env.MemNodes()
+			numMem := env.NumMem()
+			if backNum == 1 {
+				backRef1 := backRefs[0]
+				if backRef1 > numMem ||
+					memNodes == nil ||
+					memNodes[backRef1] == nil {
+					panic(newSyntaxException(err.InvalidBackref))
+				}
+			} else {
+				for _, br := range backRefs {
+					if br > numMem ||
+						memNodes == nil ||
+						memNodes[br] == nil {
+						panic(newSyntaxException(err.InvalidBackref))
+					}
+				}
+			}
+		}
+
+		lx.token.typ = TkBackRef
+		lx.token.setBackrefByName(true)
+
+		if backNum == 1 {
+			lx.token.setBackrefNum(1)
+			lx.token.setBackrefRef1(backRefs[0])
+		} else {
+			lx.token.setBackrefNum(backNum)
+			lx.token.setBackrefRefs(backRefs)
+		}
+	}
+}
+
+func (lx *Lexer) fetchTokenForCharProperty() {
+	snx := lx.syntax
+	if lx.peekIs('{') && snx.IsOp2(syntax.Op2EscPBraceCharProperty) {
+		lx.inc()
+		lx.token.typ = TkCharProperty
+		lx.token.setPropNot(lx.c == 'P')
+
+		if snx.IsOp2(syntax.Op2EscPBraceCircumflexNot) {
+			lx.fetch()
+			if lx.c == '^' {
+				lx.token.setPropNot(!lx.token.getPropNot())
+			} else {
+				lx.unfetch()
+			}
+		}
+	} else {
+		lx.syntaxCharWarn("invalid Unicode Property \\<%n>", rune(lx.c))
+	}
+}
+
+func (lx *Lexer) fetchTokenForMetaChars() {
+	metaCharTable := lx.syntax.MetaCharTable
+	c := lx.c
+	if c == metaCharTable.AnyChar {
+		lx.token.typ = TkAnyChar
+	} else if c == metaCharTable.AnyTime {
+		lx.fetchTokenForRepeat(0, ast.QuantifierRepeatInfinite)
+	} else if c == metaCharTable.ZeroOrOneTime {
+		lx.fetchTokenForRepeat(0, 1)
+	} else if c == metaCharTable.OneOrMoreTime {
+		lx.fetchTokenForRepeat(1, ast.QuantifierRepeatInfinite)
+	} else if c == metaCharTable.AnyCharAnyTime {
+		lx.token.typ = TkAnycharAnytime
+	}
+}
+
+func (lx *Lexer) fetchToken() {
+	snx := lx.syntax
+	env := lx.env
+	option := env.Option()
+	metaCharTable := snx.MetaCharTable
+
+	src := lx.p
+	// mark(); // out
+start:
+	for {
+		if !lx.left() {
+			lx.token.typ = TkEOT
+			return
+		}
+
+		lx.token.typ = TkString
+		lx.token.base = 0
+		lx.token.backP = lx.p
+
+		lx.fetch()
+
+		if lx.c == metaCharTable.Esc && !snx.IsOp2(syntax.Op2IneffectiveEscape) { // IS_MC_ESC_CODE(code, syn)
+			if !lx.left() {
+				panic(newSyntaxException(err.EndPatternAtEscape))
+			}
+
+			lx.token.backP = lx.p
+			lx.fetch()
+
+			lx.token.setC(lx.c)
+			lx.token.escaped = true
+			switch lx.c {
+
+			case '*':
+				if snx.IsOp(syntax.OpEscAsteriskZeroInf) {
+					lx.fetchTokenForRepeat(0, ast.QuantifierRepeatInfinite)
+				}
+			case '+':
+				if snx.IsOp(syntax.OpEscPlusOneInf) {
+					lx.fetchTokenForRepeat(1, ast.QuantifierRepeatInfinite)
+				}
+			case '?':
+				if snx.IsOp(syntax.OpEscQMarkZeroOne) {
+					lx.fetchTokenForRepeat(0, 1)
+				}
+			case '{':
+				if snx.IsOp(syntax.OpEscBraceInterval) {
+					lx.fetchTokenForOpenBrace()
+				}
+			case '|':
+				if snx.IsOp(syntax.OpEscVBarAlt) {
+					lx.token.typ = TkAlt
+				}
+			case '(':
+				if snx.IsOp(syntax.OpEscLParenSubexp) {
+					lx.token.typ = TkSubexpOpen
+				}
+			case ')':
+				if snx.IsOp(syntax.OpEscLParenSubexp) {
+					lx.token.typ = TkSubexpClose
+				}
+			case 'w':
+				if snx.IsOp(syntax.OpEscWWord) {
+					lx.fetchTokenInCCForCharType(false, character.Word)
+				}
+			case 'W':
+				if snx.IsOp(syntax.OpEscWWord) {
+					lx.fetchTokenInCCForCharType(true, character.Word)
+				}
+			case 'b':
+				if snx.IsOp(syntax.OpEscBWordBound) {
+					lx.fetchTokenForAnchor(anchor.WordBound)
+					lx.token.setAnchorASCIIRange(option.IsAsciiRange() && !option.IsWordBoundAllRange())
+				}
+			case 'B':
+				if snx.IsOp(syntax.OpEscBWordBound) {
+					lx.fetchTokenForAnchor(anchor.NotWordBound)
+					lx.token.setAnchorASCIIRange(option.IsAsciiRange() && !option.IsWordBoundAllRange())
+				}
+			case '<':
+				//noinspection GoBoolExpressions
+				if config.UseWordBeginEnd && snx.IsOp(syntax.OpEscLtGtWordBeginEnd) {
+					lx.fetchTokenForAnchor(anchor.WordBegin)
+					lx.token.setAnchorASCIIRange(option.IsAsciiRange())
+				}
+			case '>':
+				//noinspection GoBoolExpressions
+				if config.UseWordBeginEnd && snx.IsOp(syntax.OpEscLtGtWordBeginEnd) {
+					lx.fetchTokenForAnchor(anchor.WordEnd)
+					lx.token.setAnchorASCIIRange(option.IsAsciiRange())
+				}
+			case 's':
+				if snx.IsOp(syntax.OpEscSWhiteSpace) {
+					lx.fetchTokenInCCForCharType(false, character.Space)
+				}
+			case 'S':
+				if snx.IsOp(syntax.OpEscSWhiteSpace) {
+					lx.fetchTokenInCCForCharType(true, character.Space)
+				}
+			case 'd':
+				if snx.IsOp(syntax.OpEscDDigit) {
+					lx.fetchTokenInCCForCharType(false, character.Digit)
+				}
+			case 'D':
+				if snx.IsOp(syntax.OpEscDDigit) {
+					lx.fetchTokenInCCForCharType(true, character.Digit)
+				}
+			case 'h':
+				if snx.IsOp2(syntax.Op2EscHXDigit) {
+					lx.fetchTokenInCCForCharType(false, character.XDigit)
+				}
+			case 'H':
+				if snx.IsOp2(syntax.Op2EscHXDigit) {
+					lx.fetchTokenInCCForCharType(true, character.XDigit)
+				}
+			case 'A':
+				if snx.IsOp(syntax.OpEscAZBufAnchor) {
+					lx.fetchTokenForAnchor(anchor.BeginBuf)
+				}
+			case 'Z':
+				if snx.IsOp(syntax.OpEscAZBufAnchor) {
+					lx.fetchTokenForAnchor(anchor.SemiEndBuf)
+				}
+			case 'z':
+				if snx.IsOp(syntax.OpEscAZBufAnchor) {
+					lx.fetchTokenForAnchor(anchor.EndBuf)
+				}
+			case 'G':
+				if snx.IsOp(syntax.OpEscCapitalGBeginAnchor) {
+					lx.fetchTokenForAnchor(anchor.BeginPosition)
+				}
+			case '`':
+				if snx.IsOp2(syntax.Op2EscGnuBufAnchor) {
+					lx.fetchTokenForAnchor(anchor.BeginBuf)
+				}
+			case '\'':
+				if snx.IsOp2(syntax.Op2EscGnuBufAnchor) {
+					lx.fetchTokenForAnchor(anchor.EndBuf)
+				}
+			case 'x':
+				lx.fetchTokenForXBrace()
+			case 'u':
+				lx.fetchTokenForUHex()
+			case '1', '2', '3', '4', '5', '6', '7', '8', '9':
+				lx.fetchTokenForDigit()
+			case '0':
+				lx.fetchTokenForZero()
+			case 'k':
+				lx.fetchTokenForNamedBackref()
+			case 'g':
+				lx.fetchTokenForSubexpCall()
+			case 'Q':
+				if snx.IsOp2(syntax.Op2EscCapitalQQuote) {
+					lx.token.typ = TkQuoteOpen
+				}
+			case 'p', 'P':
+				lx.fetchTokenForCharProperty()
+			case 'R':
+				if snx.IsOp2(syntax.Op2EscCapitalRLinebreak) {
+					lx.token.typ = TkLineBreak
+				}
+			case 'X':
+				if snx.IsOp2(syntax.Op2EscCapitalXExtendedGraphemeCluster) {
+					lx.token.typ = TkExtendedGraphemeCluster
+				}
+			case 'K':
+				if snx.IsOp2(syntax.Op2EscCapitalKKeep) {
+					lx.token.typ = TkKeep
+				}
+			default:
+				lx.unfetch()
+				lx.fetchEscapedValue()
+				if lx.token.getC() != lx.c { /* set_raw: */
+					lx.token.typ = TkCodePoint
+					lx.token.setCode(lx.c)
+				} else { /* string */
+					lx.p = lx.token.backP + lx.enc.Length(lx.bytes, lx.token.backP, lx.stop)
+				}
+				break
+			}
+		} else {
+			lx.token.setC(lx.c)
+			lx.token.escaped = false
+
+			//noinspection GoBoolExpressions
+			if config.UseVariableMetaChars && (lx.c != metachar.InnefectiveMetaChar && snx.IsOp(syntax.OpVariableMetaCharacters)) {
+				lx.fetchTokenForMetaChars()
+				break
+			}
+
+			switch lx.c {
+			case '.':
+				if snx.IsOp(syntax.OpDotAnyChar) {
+					lx.token.typ = TkAnyChar
+				}
+			case '*':
+				if snx.IsOp(syntax.OpAsteriskZeroInf) {
+					lx.fetchTokenForRepeat(0, ast.QuantifierRepeatInfinite)
+				}
+			case '+':
+				if snx.IsOp(syntax.OpPlusOneInf) {
+					lx.fetchTokenForRepeat(1, ast.QuantifierRepeatInfinite)
+				}
+			case '?':
+				if snx.IsOp(syntax.OpQMarkZeroOne) {
+					lx.fetchTokenForRepeat(0, 1)
+				}
+			case '{':
+				if snx.IsOp(syntax.OpBraceInterval) {
+					lx.fetchTokenForOpenBrace()
+				}
+			case '|':
+				if snx.IsOp(syntax.OpVBarAlt) {
+					lx.token.typ = TkAlt
+				}
+			case '(':
+				if lx.peekIs('?') && snx.IsOp2(syntax.Op2QMarkGroupEffect) {
+					lx.inc()
+					if lx.peekIs('#') {
+						lx.fetch()
+						for {
+							if !lx.left() {
+								panic(newSyntaxException(err.EndPatternInGroup))
+							}
+							lx.fetch()
+							if lx.c == metaCharTable.Esc {
+								if lx.left() {
+									lx.fetch()
+								}
+							} else {
+								if lx.c == ')' {
+									break
+								}
+							}
+						}
+						continue start // goto start
+					}
+					lx.unfetch()
+				}
+
+				if snx.IsOp(syntax.OpLParenSubexp) {
+					lx.token.typ = TkSubexpOpen
+				}
+			case ')':
+				if snx.IsOp(syntax.OpLParenSubexp) {
+					lx.token.typ = TkSubexpClose
+				}
+			case '^':
+				if snx.IsOp(syntax.OpLineAnchor) {
+					var at anchor.Type
+					if option.IsSingleLine() {
+						at = anchor.BeginBuf
+					} else {
+						at = anchor.BeginLine
+					}
+					lx.fetchTokenForAnchor(at)
+				}
+			case '$':
+				if snx.IsOp(syntax.OpLineAnchor) {
+					var at anchor.Type
+					if option.IsSingleLine() {
+						at = anchor.SemiEndBuf
+					} else {
+						at = anchor.EndLine
+					}
+					lx.fetchTokenForAnchor(at)
+				}
+			case '[':
+				if snx.IsOp(syntax.OpBracketCC) {
+					lx.token.typ = TkCcOpen
+				}
+			case ']':
+				if src > lx.begin { /* /].../ is allowed. */
+					lx.env.CloseBracketWithoutEscapeWarning("]")
+				}
+			case '#':
+				if option.IsExtend() {
+					for lx.left() {
+						lx.fetch()
+						if lx.enc.IsNewLine(lx.c) {
+							break
+						}
+					}
+					continue start // goto start
+				}
+			case ' ', '\t', '\n', '\r', '\f':
+				if option.IsExtend() {
+					continue start
+				}
+			}
+		}
+		break
+	}
+}
 
 func (lx *Lexer) greedyCheck() {
 	if lx.left() && lx.peekIs('?') && lx.syntax.IsOp(syntax.OpQMarkNonGreedy) {

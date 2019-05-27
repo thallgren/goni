@@ -13,31 +13,37 @@ import (
 
 type EncloseNode struct {
 	stateNode
-	typ enclose.Type
-	regNum int
-	option option.Type
-	target goni.Node     /* EncloseNode : ENCLOSE_MEMORY */
-	callAddr int    // AbsAddrType
-	minLength int
-	maxLength int
-	charLength int  // referenced count in optimize_node_left()
-	optCount int
-	containingAnchor goni.Node
+	typ              enclose.Type
+	RegNum           int
+	option           option.Type
+	target           goni.Node     /* EncloseNode : ENCLOSE_MEMORY */
+	callAddr         int    // AbsAddrType
+	minLength        int
+	maxLength        int
+	charLength       int  // referenced count in optimize_node_left()
+	optCount         int
+	ContainingAnchor goni.Node
 }
 
-func NewEnclose(typ enclose.Type) *EncloseNode {
+func NewEncloseNode(typ enclose.Type) *EncloseNode {
 	return &EncloseNode{stateNode: stateNode{abstractNode: abstractNode{nodeType: node.Enclose}}, typ: typ, callAddr: -1}
 }
 
 //noinspection GoBoolExpressions
-func Newmemory(option option.Type, isNamed bool) *EncloseNode {
-	en := NewEnclose(enclose.Memory)
+func NewMemory(option option.Type, isNamed bool) *EncloseNode {
+	en := NewEncloseNode(enclose.Memory)
 	if config.UseSubExpCall {
 		en.option = option
 	}
 	if isNamed {
 		en.SetNamedGroup()
 	}
+	return en
+}
+
+func NewOption(option option.Type) *EncloseNode {
+	en := NewEncloseNode(enclose.Option)
+	en.option = option
 	return en
 }
 
@@ -48,7 +54,7 @@ func (en *EncloseNode) AppendTo(w *util.Indenter) {
 	en.typ.AppendString(w)
 	w.NewLine()
 	w.Append(`regNum: `)
-	w.AppendInt(en.regNum)
+	w.AppendInt(en.RegNum)
 	w.Append(`, option: `)
 	en.option.AppendString(w)
 	w.Append(`, callAddr: `)
@@ -76,7 +82,7 @@ func (en *EncloseNode) SetChild(child goni.Node) {
 	en.target = child
 }
 
-func (en *EncloseNode) setTarget(target goni.Node) {
+func (en *EncloseNode) SetTarget(target goni.Node) {
 	en.target = target
 	target.SetParent(en)
 }
@@ -99,6 +105,10 @@ func (en *EncloseNode) ClearEncloseStatus(flag state.Type) {
 
 func (en *EncloseNode) IsType(et enclose.Type) bool {
 	return en.typ.IsType(et)
+}
+
+func (en *EncloseNode) EncloseType() enclose.Type {
+	return en.typ
 }
 
 type UnsetAddrList struct {

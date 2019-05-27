@@ -1,6 +1,12 @@
 package goni
 
+import (
+	"github.com/lyraproj/goni/goni/option"
+)
+
 type ScanEnvironment interface {
+	AddMemEntry() int
+
 	UnknownEscapeWarning(s string)
 
 	CloseBracketWithoutEscapeWarning(s string)
@@ -17,7 +23,20 @@ type ScanEnvironment interface {
 
 	NumMem() int
 
+	Option() option.Type
+
+	SetOption(option.Type)
+
+	CurrentPrecReadNotNode() Node
+
+	PushPrecReadNotNode(node Node)
+
+	PopPrecReadNotNode(node Node)
+
 	Syntax() *Syntax
 
 	Warnings() WarnCallback
+
+	SetMemNode(i int, node Node)
+
 }

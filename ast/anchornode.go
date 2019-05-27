@@ -15,7 +15,7 @@ type AnchorNode struct {
 	charLength int
 }
 
-func NewAnchor(typ anchor.Type, asciiRange bool) goni.Node {
+func NewAnchorNode(typ anchor.Type, asciiRange bool) goni.Node {
 	return &AnchorNode{abstractNode: abstractNode{nodeType: node.Anchor}, typ: typ, asciiRange: asciiRange, charLength: -1}
 }
 
@@ -52,7 +52,7 @@ func (a *AnchorNode) SetChild(child goni.Node) {
 	a.target = child
 }
 
-func (a *AnchorNode) setTarget(target goni.Node) {
+func (a *AnchorNode) SetTarget(target goni.Node) {
 	a.target = target
 	target.SetParent(a)
 }

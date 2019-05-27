@@ -14,8 +14,17 @@ type Encoding interface {
 	// length, missing characters in the stream otherwise
 	Length(bytes []byte, p, end int) int
 
+	StrNCmp(bytes []byte, p, end int, ascii []byte, asciiP, n int) int
+
+	StrLength(bytes []byte, p, end int) int
+
+	Step(bytes []byte, p, end, n int) int
+
 	// MbcToCode returns code point for a character
 	MbcToCode(bytes []byte, p, end int) (code, len int)
+
+	// MaxLength Returns maximum character byte length that can appear in an encoding
+	MaxLength() int
 
 	// MinLength returns minimum character byte length that can appear in an encoding
 	MinLength() int
@@ -32,4 +41,5 @@ type Encoding interface {
 	IsSingleByte() bool
 	IsWord(code int) bool
 	IsUpper(code int) bool
+	IsNewLine(code int) bool
 }

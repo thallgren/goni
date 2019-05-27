@@ -8,25 +8,25 @@ type Behavior int
 const (
 	/* syntax (operators); */
 	OpVariableMetaCharacters = Op(1 << 0)
-	OpDotAnychar             = Op(1 << 1) /* . */
+	OpDotAnyChar             = Op(1 << 1) /* . */
 	OpAsteriskZeroInf        = Op(1 << 2) /* * */
 	OpEscAsteriskZeroInf     = Op(1 << 3)
 	OpPlusOneInf             = Op(1 << 4) /* + */
 	OpEscPlusOneInf          = Op(1 << 5)
-	OpQmarkZeroOne           = Op(1 << 6) /* ? */
-	OpEscQmarkZeroOne        = Op(1 << 7)
+	OpQMarkZeroOne           = Op(1 << 6) /* ? */
+	OpEscQMarkZeroOne        = Op(1 << 7)
 	OpBraceInterval          = Op(1 << 8)  /* {lower,upper} */
 	OpEscBraceInterval       = Op(1 << 9)  /* \{lower,upper\} */
-	OpVbarAlt                = Op(1 << 10) /* | */
-	OpEscVbarAlt             = Op(1 << 11) /* \| */
-	OpLparenSubexp           = Op(1 << 12) /* (...);   */
-	OpEscLparenSubexp        = Op(1 << 13) /* \(...\); */
-	OpEscAzBufAnchor         = Op(1 << 14) /* \A, \Z, \z */
+	OpVBarAlt                = Op(1 << 10) /* | */
+	OpEscVBarAlt             = Op(1 << 11) /* \| */
+	OpLParenSubexp           = Op(1 << 12) /* (...);   */
+	OpEscLParenSubexp        = Op(1 << 13) /* \(...\); */
+	OpEscAZBufAnchor         = Op(1 << 14) /* \A, \Z, \z */
 	OpEscCapitalGBeginAnchor = Op(1 << 15) /* \G     */
 	OpDecimalBackref         = Op(1 << 16) /* \num   */
 	OpBracketCC              = Op(1 << 17) /* [...]  */
 	OpEscWWord               = Op(1 << 18) /* \w, \W */
-	OpEscLtgtWordBeginEnd    = Op(1 << 19) /* \<. \> */
+	OpEscLtGtWordBeginEnd    = Op(1 << 19) /* \<. \> */
 	OpEscBWordBound          = Op(1 << 20) /* \b, \B */
 	OpEscSWhiteSpace         = Op(1 << 21) /* \s, \S */
 	OpEscDDigit              = Op(1 << 22) /* \d, \D */
@@ -41,16 +41,16 @@ const (
 	OpEscOBraceOctal         = Op(1 << 31) /* \o{OOO} */
 
 	Op2EscCapitalQQuote       = Op2(1 << 0)  /* \Q...\E */
-	Op2QmarkGroupEffect       = Op2(1 << 1)  /* (?...); */
+	Op2QMarkGroupEffect       = Op2(1 << 1)  /* (?...); */
 	Op2OptionPerl             = Op2(1 << 2)  /* (?imsxadlu), (?-imsx), (?^imsxalu) */
 	Op2OptionRuby             = Op2(1 << 3)  /* (?imxadu);, (?-imx);  */
 	Op2PlusPossessiveRepeat   = Op2(1 << 4)  /* ?+,*+,++ */
 	Op2PlusPossessiveInterval = Op2(1 << 5)  /* {n,m}+   */
 	Op2CClassSetOp            = Op2(1 << 6)  /* [...&&..[..]..] */
-	Op2QmarkLtNamedGroup      = Op2(1 << 7)  /* (?<name>...); */
+	Op2QMarkLtNamedGroup      = Op2(1 << 7)  /* (?<name>...); */
 	Op2EscKNamedBackref       = Op2(1 << 8)  /* \k<name> */
 	Op2EscGSubexpCall         = Op2(1 << 9)  /* \g<name>, \g<n> */
-	Op2AtmarkCaptureHistory   = Op2(1 << 10) /* (?@..);,(?@<x>..); */
+	Op2AtMarkCaptureHistory   = Op2(1 << 10) /* (?@..);,(?@<x>..); */
 	Op2EscCapitalCBarControl  = Op2(1 << 11) /* \C-x */
 	Op2EscCapitalMBarMeta     = Op2(1 << 12) /* \M-x */
 	Op2EscVVtab               = Op2(1 << 13) /* \v as VTAB */
@@ -59,7 +59,7 @@ const (
 	Op2EscPBraceCharProperty  = Op2(1 << 16) /* \p{...}, \P{...} */
 	Op2EscPBraceCircumflexNot = Op2(1 << 17) /* \p{^..}, \P{^..} */
 	/* Op2CharOp2PrefixIs = Op2(1<<18) */
-	Op2EscHXdigit                         = Op2(1 << 19) /* \h, \H */
+	Op2EscHXDigit                         = Op2(1 << 19) /* \h, \H */
 	Op2IneffectiveEscape                  = Op2(1 << 20) /* \ */
 	Op2EscCapitalRLinebreak               = Op2(1 << 21) /* \R as (?>\x0D\x0A|[\x0A-\x0D\x{85}\x{2028}\x{2029}]) */
 	Op2EscCapitalXExtendedGraphemeCluster = Op2(1 << 22) /* \X as (?:\P{M}\p{M}*) */
@@ -69,9 +69,9 @@ const (
 	Op2EscGBraceBackref                   = Op2(1 << 26) /* \g{name}, \g{n} */
 	Op2QmarkSubexpCall                    = Op2(1 << 27) /* (?&name), (?n), (?R), (?0) */
 	Op2QmarkBarBranchReset                = Op2(1 << 28) /* (?|...) */
-	Op2QmarkLparenCondition               = Op2(1 << 29) /* (?(cond)yes...|no...) */
+	Op2QMarkLParenCondition               = Op2(1 << 29) /* (?(cond)yes...|no...) */
 	Op2QmarkCapitalPNamedGroup            = Op2(1 << 30) /* (?P<name>...), (?P=name), (?P>name) -- Python/PCRE */
-	Op2QmarkTildeAbsent                   = Op2(1 << 31) /* (?~...) */
+	Op2QMarkTildeAbsent                   = Op2(1 << 31) /* (?~...) */
 
 	Op3OptionJava       = Op3(1 << 0) /* (?idmsux), (?-idmsux) */
 	Op3OptionECMAScript = Op3(1 << 1) /* EcmaScript quirks */
@@ -100,21 +100,21 @@ const (
 	WarnRedundantNestedRepeat = Behavior(1 << 25) /* (?:a*);+ */
 	WarnCCDup                 = Behavior(1 << 26) /* [aa] */
 
-	PosixCommonOp = OpDotAnychar | OpPosixBracket |
+	PosixCommonOp = OpDotAnyChar | OpPosixBracket |
 		OpDecimalBackref |
 		OpBracketCC | OpAsteriskZeroInf |
 		OpLineAnchor |
 		OpEscControlChars
 
-	GnuRegexOp = OpDotAnychar | OpBracketCC |
+	GnuRegexOp = OpDotAnyChar | OpBracketCC |
 		OpPosixBracket | OpDecimalBackref |
-		OpBraceInterval | OpLparenSubexp |
-		OpVbarAlt |
+		OpBraceInterval | OpLParenSubexp |
+			OpVBarAlt |
 		OpAsteriskZeroInf | OpPlusOneInf |
-		OpQmarkZeroOne |
-		OpEscAzBufAnchor | OpEscCapitalGBeginAnchor |
+			OpQMarkZeroOne |
+			OpEscAZBufAnchor | OpEscCapitalGBeginAnchor |
 		OpEscWWord |
-		OpEscBWordBound | OpEscLtgtWordBeginEnd |
+		OpEscBWordBound | OpEscLtGtWordBeginEnd |
 		OpEscSWhiteSpace | OpEscDDigit |
 		OpLineAnchor
 

@@ -14,8 +14,16 @@ type Indenter struct {
 }
 
 type Indentable interface {
+	fmt.Stringer
+
 	// AppendTo appends a string representation of the Node to the Indenter
 	AppendTo(w *Indenter)
+}
+
+func String(ia Indentable) string {
+	i := NewIndenter()
+	ia.AppendTo(i)
+	return i.String()
 }
 
 func NewIndenter() *Indenter {

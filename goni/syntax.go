@@ -1,18 +1,10 @@
 package goni
 
 import (
+	"github.com/lyraproj/goni/goni/metachar"
 	"github.com/lyraproj/goni/goni/option"
 	"github.com/lyraproj/goni/goni/syntax"
 )
-
-type MetaCharTable struct {
-	Esc int
-	AnyChar int
-	AnyTime int
-	ZeroOrOneTime int
-	OneOrMoreTime int
-	AnyCharAnyTime int
-}
 
 type Syntax struct {
 	name string
@@ -21,7 +13,7 @@ type Syntax struct {
 	op3 syntax.Op3
 	behavior syntax.Behavior
 	options option.Type
-	MetaCharTable *MetaCharTable
+	MetaCharTable *metachar.Table
 }
 
 func (s *Syntax) IsOp(op syntax.Op) bool {

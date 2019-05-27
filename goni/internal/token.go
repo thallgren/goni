@@ -1,6 +1,9 @@
 package internal
 
-import "github.com/lyraproj/goni/goni/character"
+import (
+	"github.com/lyraproj/goni/goni/anchor"
+	"github.com/lyraproj/goni/goni/character"
+)
 
 type TokenType int
 
@@ -36,7 +39,7 @@ const (
 )
 
 type Token struct {
-	typ     TokenType
+	Type    TokenType
 	escaped bool
 	base    int
 	backP   int
@@ -63,11 +66,11 @@ func (t *Token) getCode() int {
 func (t *Token) setCode(code int) {
 	t.int1 = code
 }
-func (t *Token) getAnchorSubtype() int {
-	return t.int1
+func (t *Token) getAnchorSubtype() anchor.Type {
+	return anchor.Type(t.int1)
 }
-func (t *Token) setAnchorSubtype(anchor int) {
-	t.int1 = anchor
+func (t *Token) setAnchorSubtype(anchor anchor.Type) {
+	t.int1 = int(anchor)
 }
 func (t *Token) getAnchorASCIIRange() bool {
 	return t.int2 == 1

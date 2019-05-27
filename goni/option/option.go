@@ -9,6 +9,8 @@ import (
 type Type int
 
 const (
+	BitsNum = 4 * 8
+
 	None             = Type(0)
 	IgnoreCase       = Type(1 << 0)
 	Extend           = Type(1 << 1)
@@ -191,4 +193,47 @@ func (v Type) IsCR7Bit() bool {
 
 func (v Type) IsMaxBit() bool {
 	return (v & MaxBit) != 0
+}
+
+func Clear() Type {
+	return 0
+}
+
+func All() Type {
+	return -1
+}
+
+func At(stats Type, n int) bool {
+	u := uint(n)
+	if u < BitsNum {
+		return (stats & (1 << u)) != 0
+	}
+	return (stats & 1) != 0
+}
+
+func OnAt(stats Type, n int) Type {
+	u := uint(n)
+	if u < BitsNum {
+		stats |= 1 << u
+	} else {
+		stats |= 1
+	}
+	return stats
+}
+
+func OnAtSimple(stats Type, n int) Type {
+	u := uint(n)
+	if u < BitsNum {
+		stats |= 1 << u
+	}
+	return stats
+}
+
+func OnOff(v Type, f Type, negative bool) Type {
+	if negative {
+		v &= ^f
+	} else {
+		v |= f
+	}
+	return v
 }

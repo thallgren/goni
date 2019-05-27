@@ -14,7 +14,7 @@ const (
 	Punct
 	Space
 	Upper
-	Xdigit
+	XDigit
 	Word
 	Alnum
 	Ascii
@@ -32,7 +32,7 @@ const (
 	BitPunct   = Type(1 << Punct)
 	BitSpace   = Type(1 << Space)
 	BitUpper   = Type(1 << Upper)
-	BitXdigit  = Type(1 << Xdigit)
+	BitXdigit  = Type(1 << XDigit)
 	BitWord    = Type(1 << Word)
 	BitAlnum   = Type(1 << Alnum)
 	BitAscii   = Type(1 << Ascii)

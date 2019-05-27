@@ -9,11 +9,11 @@ import (
 type ListNode struct {
 	abstractNode
 	value goni.Node
-	tail *ListNode
+	Tail  *ListNode
 }
 
 func newListNode(value goni.Node, tail *ListNode, typ node.Type) *ListNode {
-	ln := &ListNode{abstractNode: abstractNode{nodeType: typ}, value: value, tail: tail}
+	ln := &ListNode{abstractNode: abstractNode{nodeType: typ}, value: value, Tail: tail}
 	if value != nil {
 		value.SetParent(ln)
 	}
@@ -34,10 +34,10 @@ func NewAlt(value goni.Node, tail *ListNode) *ListNode {
 func ListAdd(list *ListNode, value goni.Node) *ListNode {
 	n := newListNode(value, nil, node.List)
 	if list != nil {
-		for list.tail != nil {
-			list = list.tail
+		for list.Tail != nil {
+			list = list.Tail
 		}
-		list.tail = n
+		list.Tail = n
 	}
 	return n
 }
@@ -59,8 +59,8 @@ func (ln *ListNode) setValue(value goni.Node) {
 	value.SetParent(ln)
 }
 
-func (ln *ListNode) setTail(tail *ListNode) {
-	ln.tail = tail
+func (ln *ListNode) SetTail(tail *ListNode) {
+	ln.Tail = tail
 }
 
 func (ln *ListNode) String() string {
@@ -76,10 +76,10 @@ func (ln *ListNode) AppendTo(w *util.Indenter) {
 		ln.value.AppendTo(w.Indent())
 	}
 	w.Append(`tail: `)
-	if ln.tail == nil {
+	if ln.Tail == nil {
 		w.Append(`NULL`)
 	} else {
-		ln.tail.AppendTo(w.Indent())
+		ln.Tail.AppendTo(w.Indent())
 	}
 }
 

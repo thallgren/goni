@@ -37,6 +37,10 @@ func (cn *CClassNode) AppendTo(w *util.Indenter) {
 	}
 }
 
+func (cn *CClassNode) BitSet() *goni.BitSet {
+	return cn.bs
+}
+
 func (cn *CClassNode) Name() string {
 	return `Character Class`
 }
@@ -51,20 +55,24 @@ func (cn *CClassNode) Clear() {
 	cn.mbuf = nil
 }
 
-func (cn *CClassNode) isEmpty() bool {
+func (cn *CClassNode) IsEmpty() bool {
 	return cn.mbuf == nil && cn.bs.IsEmpty()
 }
 
-func (cn *CClassNode) isNot() bool {
+func (cn *CClassNode) IsNot() bool {
 	return (cn.flags & flagNcCClassNot) != 0
 }
 
-func (cn *CClassNode) clearNot() {
+func (cn *CClassNode) ClearNot() {
 	cn.flags &= ^flagNcCClassNot
 }
 
+func (cn *CClassNode) SetNot() {
+	cn.flags |= flagNcCClassNot
+}
+
 func (cn *CClassNode) appendFlags(w *util.Indenter) {
-	if cn.isNot() {
+	if cn.IsNot() {
 		w.Append(`NOT`)
 	}
 }
@@ -73,7 +81,7 @@ func (cn *CClassNode) addCodeRangeToBuf(env goni.ScanEnvironment, from, to int, 
 	cn.mbuf = coderange.AddToBuffer(cn.mbuf, env, from, to, checkDup)
 }
 
-func (cn *CClassNode) addCodeRange(env goni.ScanEnvironment, from, to int, checkDup bool) {
+func (cn *CClassNode) AddCodeRange(env goni.ScanEnvironment, from, to int, checkDup bool) {
 	cn.mbuf = coderange.Add(cn.mbuf, env, from, to, checkDup)
 }
 
@@ -82,17 +90,17 @@ func (cn *CClassNode) addAllMultiByteRange(env goni.ScanEnvironment) {
 }
 
 func (cn *CClassNode) clearNotFlag(env goni.ScanEnvironment) {
-	if cn.isNot() {
+	if cn.IsNot() {
 		cn.bs.InvertAll()
 		if !env.Encoding().IsSingleByte() {
 			cn.mbuf = coderange.NotBuffer(env, cn.mbuf)
 		}
-		cn.clearNot()
+		cn.ClearNot()
 	}
 }
 
 func (cn *CClassNode) isOneChar() int {
-	if cn.isNot() {
+	if cn.IsNot() {
 		return -1
 	}
 	c := -1
@@ -121,11 +129,11 @@ func (cn *CClassNode) isOneChar() int {
 	return c
 }
 
-func (cn *CClassNode) and(other *CClassNode, env goni.ScanEnvironment) {
-	not1 := cn.isNot()
+func (cn *CClassNode) And(other *CClassNode, env goni.ScanEnvironment) {
+	not1 := cn.IsNot()
 	bsr1 := cn.bs
 	buf1 := cn.mbuf
-	not2 := other.isNot()
+	not2 := other.IsNot()
 	bsr2 := other.bs
 	buf2 := other.mbuf
 
@@ -166,11 +174,11 @@ func (cn *CClassNode) and(other *CClassNode, env goni.ScanEnvironment) {
 	}
 }
 
-func (cn *CClassNode) or(other *CClassNode, env goni.ScanEnvironment) {
-	not1 := cn.isNot()
+func (cn *CClassNode) Or(other *CClassNode, env goni.ScanEnvironment) {
+	not1 := cn.IsNot()
 	bsr1 := cn.bs
 	buf1 := cn.mbuf
-	not2 := other.isNot()
+	not2 := other.IsNot()
 	bsr2 := other.bs
 	buf2 := other.mbuf
 
@@ -287,7 +295,7 @@ func crTo(rng []int, i int) int {
 	return rng[(i*2)+2]
 }
 
-func (cn *CClassNode) addCType(ctype character.Type, not, asciiRange bool, env goni.ScanEnvironment, sbOut *int) {
+func (cn *CClassNode) AddCType(ctype character.Type, not, asciiRange bool, env goni.ScanEnvironment, sbOut *int) {
 	enc := env.Encoding()
 	ranges := enc.CTypeCodeRange(ctype, sbOut)
 	if ranges != nil {
@@ -303,9 +311,9 @@ func (cn *CClassNode) addCType(ctype character.Type, not, asciiRange bool, env g
 				} else {
 					ccAscii.bs.CheckedSetRange(env, 0x00, 0x7F)
 				}
-				ccWork.and(ccAscii, env)
+				ccWork.And(ccAscii, env)
 			}
-			cn.or(ccWork, env)
+			cn.Or(ccWork, env)
 		} else {
 			cn.addCTypeByRange(ctype, not, env, *sbOut, ranges)
 		}
@@ -325,7 +333,7 @@ func (cn *CClassNode) addCType(ctype character.Type, not, asciiRange bool, env g
 		character.Punct,
 		character.Space,
 		character.Upper,
-		character.Xdigit,
+		character.XDigit,
 		character.Ascii,
 		character.Alnum:
 		if not {
@@ -415,7 +423,7 @@ type CCStateArg struct {
 	State     CCState
 }
 
-func (cn *CClassNode) nextStateClass(arg *CCStateArg, ascCC *CClassNode, env goni.ScanEnvironment) {
+func (cn *CClassNode) NextStateClass(arg *CCStateArg, ascCC *CClassNode, env goni.ScanEnvironment) {
 	if arg.State == CCStateRange {
 		panic(err.NoArgs(err.CharClassValueAtEndOfRange))
 	}
@@ -427,9 +435,9 @@ func (cn *CClassNode) nextStateClass(arg *CCStateArg, ascCC *CClassNode, env gon
 				ascCC.bs.Set(arg.From)
 			}
 		} else if arg.Type == CCValTypeCodePoint {
-			cn.addCodeRange(env, arg.From, arg.From, true)
+			cn.AddCodeRange(env, arg.From, arg.From, true)
 			if ascCC != nil {
-				ascCC.addCodeRange(env, arg.From, arg.From, false)
+				ascCC.AddCodeRange(env, arg.From, arg.From, false)
 			}
 		}
 	}
@@ -437,7 +445,7 @@ func (cn *CClassNode) nextStateClass(arg *CCStateArg, ascCC *CClassNode, env gon
 	arg.Type = CCValTypeClass
 }
 
-func (cn *CClassNode) nextStateValue(arg *CCStateArg, ascCC *CClassNode, env goni.ScanEnvironment) {
+func (cn *CClassNode) NextStateValue(arg *CCStateArg, ascCC *CClassNode, env goni.ScanEnvironment) {
 	bs := cn.bs
 	switch arg.State {
 	case CCStateValue:
@@ -447,9 +455,9 @@ func (cn *CClassNode) nextStateValue(arg *CCStateArg, ascCC *CClassNode, env gon
 				ascCC.bs.Set(arg.From)
 			}
 		} else if arg.Type == CCValTypeCodePoint {
-			cn.addCodeRange(env, arg.From, arg.From, true)
+			cn.AddCodeRange(env, arg.From, arg.From, true)
 			if ascCC != nil {
-				ascCC.addCodeRange(env, arg.From, arg.From, false)
+				ascCC.AddCodeRange(env, arg.From, arg.From, false)
 			}
 		}
 
@@ -474,9 +482,9 @@ func (cn *CClassNode) nextStateValue(arg *CCStateArg, ascCC *CClassNode, env gon
 					ascCC.bs.SetRange(arg.From, arg.To)
 				}
 			} else {
-				cn.addCodeRange(env, arg.From, arg.To, true)
+				cn.AddCodeRange(env, arg.From, arg.To, true)
 				if ascCC != nil {
-					ascCC.addCodeRange(env, arg.From, arg.To, false)
+					ascCC.AddCodeRange(env, arg.From, arg.To, false)
 				}
 			}
 		} else {
@@ -494,10 +502,10 @@ func (cn *CClassNode) nextStateValue(arg *CCStateArg, ascCC *CClassNode, env gon
 				to = arg.To
 			}
 			bs.CheckedSetRange(env, arg.From, to)
-			cn.addCodeRange(env, arg.From, arg.To, true)
+			cn.AddCodeRange(env, arg.From, arg.To, true)
 			if ascCC != nil {
 				ascCC.bs.SetRange(arg.From, to)
-				ascCC.addCodeRange(env, arg.From, arg.To, false)
+				ascCC.AddCodeRange(env, arg.From, arg.To, false)
 			}
 		}
 		// ccs_range_end:
@@ -524,7 +532,7 @@ func (cn *CClassNode) isCodeInCCLength(encLength, code int) bool {
 		found = cn.bs.At(code)
 	}
 
-	if cn.isNot() {
+	if cn.IsNot() {
 		return !found
 	}
 	return found

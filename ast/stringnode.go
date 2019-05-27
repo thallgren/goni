@@ -23,6 +23,8 @@ const (
 	nodeStrBufSize = 24
 )
 
+var StringNodeEmpty = &StringNode{abstractNode: abstractNode{nodeType: node.Str}, bytes: []byte{}}
+
 func NewStringNodeWithCapacity(size int) *StringNode {
 	return &StringNode{abstractNode: abstractNode{nodeType: node.Str}, bytes: make([]byte, 0, size)}
 }
@@ -37,12 +39,21 @@ func (sn *StringNode) String() string {
 
 func (sn *StringNode) AppendTo(w *util.Indenter) {
 	w.NewLine()
-	w.Append(`flags: `)
-	sn.appendFlags(w)
-	w.NewLine()
-	w.Append(`bytes: `)
-
-	panic("implement me")
+	if sn.flag != 0 {
+		w.Append(`flags: `)
+		sn.appendFlags(w)
+		w.NewLine()
+	}
+	w.Append(`bytes: '`)
+	for _, b := range sn.bytes {
+		u := uint(b)
+		if u >= 0x20 && u < 0x7f {
+			w.Append(string(b));
+		} else {
+			w.Printf("[0x%02x]", u);
+		}
+	}
+	w.Append("'");
 }
 
 func (sn *StringNode) Name() string {

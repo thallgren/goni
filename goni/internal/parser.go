@@ -6,7 +6,6 @@ import (
 	"github.com/lyraproj/goni/err"
 	"github.com/lyraproj/goni/goni"
 	"github.com/lyraproj/goni/goni/anchor"
-	"github.com/lyraproj/goni/goni/bitstatus"
 	"github.com/lyraproj/goni/goni/character"
 	"github.com/lyraproj/goni/goni/enclose"
 	"github.com/lyraproj/goni/goni/node"
@@ -14,7 +13,6 @@ import (
 	"github.com/lyraproj/goni/goni/posix"
 	"github.com/lyraproj/goni/goni/syntax"
 	"github.com/lyraproj/issue/issue"
-	"go/token"
 )
 
 const (
@@ -44,8 +42,8 @@ func (px *Parser) parsePosixBracket(cc, ascCc *ast.CClassNode) bool {
 
 	enc := px.enc
 	if enc.StrLength(px.bytes, px.p, px.stop) >= posixBracketNameMinLen+3 {
-		option := px.env.Option()
-		asciiRange := option.IsAsciiRange() && !option.IsPosixBracketAllRange()
+		opt := px.env.Option()
+		asciiRange := opt.IsAsciiRange() && !opt.IsPosixBracketAllRange()
 
 		for i, name := range posix.PBSNamesLower {
 			// hash lookup here ?
@@ -225,11 +223,11 @@ func (px *Parser) parseCharClass(ascNode **ast.CClassNode) *ast.CClassNode {
 			}
 
 		case TkCharType:
-			option := env.Option()
-			cc.AddCType(px.token.getPropCType(), px.token.getPropNot(), option.IsAsciiRange(), env, &px.value)
+			opt := env.Option()
+			cc.AddCType(px.token.getPropCType(), px.token.getPropNot(), opt.IsAsciiRange(), env, &px.value)
 			if ascCc != nil {
 				if px.token.getPropCType() != character.Word {
-					ascCc.AddCType(px.token.getPropCType(), px.token.getPropNot(), option.IsAsciiRange(), env, &px.value)
+					ascCc.AddCType(px.token.getPropCType(), px.token.getPropNot(), opt.IsAsciiRange(), env, &px.value)
 				}
 			}
 			cc.NextStateClass(arg, ascCc, env) // next_class:
@@ -463,13 +461,11 @@ func (px *Parser) parseEnclose(term TokenType) goni.Node {
 			}
 		case '\'':
 			//noinspection GoBoolExpressions
-			if config.UseNamedGroup {
-				if snx.IsOp2(syntax.Op2QMarkLtNamedGroup) {
-					listCapture = false // goto named_group1
-					nd = px.parseEncloseNamedGroup2(listCapture)
-				} else {
-					panic(newSyntaxException(err.UndefinedGroupOption))
-				}
+			if config.UseNamedGroup && snx.IsOp2(syntax.Op2QMarkLtNamedGroup) {
+				listCapture = false // goto named_group1
+				nd = px.parseEncloseNamedGroup2(listCapture)
+			} else {
+				panic(newSyntaxException(err.UndefinedGroupOption))
 			}
 		case '<': /* look behind (?<=...), (?<!...) */
 			px.fetch()
@@ -524,7 +520,7 @@ func (px *Parser) parseEnclose(term TokenType) goni.Node {
 				if enc.IsDigit(px.c) { /* (n) */
 					px.unfetch()
 					num = px.fetchName('(', true)
-					if syntax.strictCheckBackref() {
+					if snx.IsBehavior(syntax.StrictCheckBackref) {
 						if num > env.NumMem() || env.MemNodes() == nil || env.MemNodes()[num] == nil {
 							panic(newSyntaxException(err.InvalidBackref))
 						}
@@ -555,7 +551,6 @@ func (px *Parser) parseEnclose(term TokenType) goni.Node {
 			} else {
 				panic(newSyntaxException(err.UndefinedGroupOption))
 			}
-			break
 
 		case '^': /* loads default options */
 			if px.left() && snx.IsOp2(syntax.Op2OptionPerl) {
@@ -569,39 +564,27 @@ func (px *Parser) parseEnclose(term TokenType) goni.Node {
 			} else {
 				panic(newSyntaxException(err.UndefinedGroupOption))
 			}
+			fallthrough
 
 		// case 'p': #ifdef USE_POSIXLINE_OPTION
-		case '-':
-		case 'i':
-		case 'm':
-		case 's':
-		case 'x':
-		case 'a':
-		case 'd':
-		case 'l':
-		case 'u':
+		case '-', 'i', 'm', 's', 'x', 'a', 'd', 'l', 'u':
 			neg := false
-			for true {
+			for {
 				switch px.c {
-				case ':':
-				case ')':
-					break
+				case ':', ')':
+
 				case '-':
 					neg = true
-					break
 				case 'x':
 					opt = option.OnOff(opt, option.Extend, neg)
-					break
 				case 'i':
 					opt = option.OnOff(opt, option.IgnoreCase, neg)
-					break
 				case 's':
 					if snx.IsOp2(syntax.Op2OptionPerl) {
 						opt = option.OnOff(opt, option.MultiLine, neg)
 					} else {
 						panic(newSyntaxException(err.UndefinedGroupOption))
 					}
-					break
 				case 'm':
 					if snx.IsOp2(syntax.Op2OptionPerl) {
 						opt = option.OnOff(opt, option.SingleLine, !neg)
@@ -610,17 +593,11 @@ func (px *Parser) parseEnclose(term TokenType) goni.Node {
 					} else {
 						panic(newSyntaxException(err.UndefinedGroupOption))
 					}
-					break
-				// case 'p': #ifdef USE_POSIXLINE_OPTION // not defined
-				// option = bitstatus.OnOff(option, Option.MULTILINE|Option.SINGLELINE, neg);
-				// break;
-
 				case 'a': /* limits \d, \s, \w and POSIX brackets to ASCII range */
 					if (snx.IsOp2(syntax.Op2OptionPerl) || snx.IsOp2(syntax.Op2OptionRuby)) && !neg {
 						opt = option.OnOff(opt, option.AsciiRange, false)
 						opt = option.OnOff(opt, option.PosixBracketAllRange, true)
 						opt = option.OnOff(opt, option.WordBoundAllRange, true)
-						break
 					} else {
 						panic(newSyntaxException(err.UndefinedGroupOption))
 					}
@@ -629,7 +606,6 @@ func (px *Parser) parseEnclose(term TokenType) goni.Node {
 						opt = option.OnOff(opt, option.AsciiRange, true)
 						opt = option.OnOff(opt, option.PosixBracketAllRange, true)
 						opt = option.OnOff(opt, option.WordBoundAllRange, true)
-						break
 					} else {
 						panic(newSyntaxException(err.UndefinedGroupOption))
 					}
@@ -644,18 +620,15 @@ func (px *Parser) parseEnclose(term TokenType) goni.Node {
 					} else {
 						panic(newSyntaxException(err.UndefinedGroupOption))
 					}
-					break
-
 				case 'l':
 					if snx.IsOp2(syntax.Op2OptionPerl) && !neg {
 						opt = option.OnOff(opt, option.AsciiRange, true)
 					} else {
 						panic(newSyntaxException(err.UndefinedGroupOption))
 					}
-					break
 				default:
 					panic(newSyntaxException(err.UndefinedGroupOption))
-				} // switch
+				}
 
 				if px.c == ')' {
 					en := ast.NewOption(opt)
@@ -679,12 +652,11 @@ func (px *Parser) parseEnclose(term TokenType) goni.Node {
 					panic(newSyntaxException(err.EndPatternInGroup))
 				}
 				px.fetch()
-			} // while
+			}
 
 		default:
 			panic(newSyntaxException(err.UndefinedGroupOption))
-		} // switch
-
+		}
 	} else {
 		if opt.IsDontCaptureGroup() {
 			px.fetchToken() // goto group
@@ -718,7 +690,7 @@ func (px *Parser) parseEnclose(term TokenType) goni.Node {
 			env.SetMemNode(en.RegNum, en)
 		} else if en.EncloseType() == enclose.Condition {
 			if target.Type() != node.Alt { /* convert (?(cond)yes) to (?(cond)yes|empty) */
-				en.SetTarget(ast.NewAlt(target, ast.NewAlt(StringNode.EMPTY, nil)))
+				en.SetTarget(ast.NewAlt(target, ast.NewAlt(ast.StringNodeEmpty, nil)))
 			}
 		}
 	}
@@ -727,19 +699,19 @@ func (px *Parser) parseEnclose(term TokenType) goni.Node {
 }
 
 func (px *Parser) parseSubExp(term TokenType) goni.Node {
-	node := parseBranch(term)
+	nd := px.parseBranch(term)
 
 	if px.token.Type == term {
-		return node
+		return nd
 	}
 	if px.token.Type == TkAlt {
-		top := ast.NewAlt(node, nil)
+		top := ast.NewAlt(nd, nil)
 		t := top
 		for px.token.Type == TkAlt {
 			px.fetchToken()
-			node = px.parseBranch(term)
+			nd = px.parseBranch(term)
 
-			t.SetTail(ast.NewAlt(node, nil))
+			t.SetTail(ast.NewAlt(nd, nil))
 			t = t.Tail
 		}
 
@@ -751,9 +723,17 @@ func (px *Parser) parseSubExp(term TokenType) goni.Node {
 	panic(parseSubExpError(term))
 }
 
+func (px *Parser) parseEncloseNamedGroup2(b bool) goni.Node {
+	return nil // TODO
+}
+
+func (px *Parser) parseBranch(tokenType TokenType) goni.Node {
+	return nil // TODO
+}
+
 func parseSubExpError(term TokenType) issue.Reported {
-	if (term == TkSubexpClose) {
-		return newSyntaxException(err.EndPatternWithUnmatchedParenthesis);
+	if term == TkSubexpClose {
+		return newSyntaxException(err.EndPatternWithUnmatchedParenthesis)
 	}
-	return newSyntaxException(err.ParserBug);
+	return newSyntaxException(err.ParserBug)
 }

@@ -36,7 +36,12 @@ func (sn *StringNode) String() string {
 }
 
 func (sn *StringNode) AppendTo(w *util.Indenter) {
-	
+	w.NewLine()
+	w.Append(`flags: `)
+	sn.appendFlags(w)
+	w.NewLine()
+	w.Append(`bytes: `)
+
 	panic("implement me")
 }
 

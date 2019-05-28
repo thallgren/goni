@@ -1,42 +1,17 @@
 package goni
 
-import (
-	"github.com/lyraproj/goni/goni/option"
-)
+import "github.com/lyraproj/goni/goni/option"
 
 type ScanEnvironment interface {
-	AddMemEntry() int
-
-	UnknownEscapeWarning(s string)
-
-	CloseBracketWithoutEscapeWarning(s string)
-
-	CCDuplicateWarning()
-
-	CCEscWarn(msg string)
-
-	ConvertBackslashValue(c int) int
+	Option() option.Type
 
 	Encoding() Encoding
 
-	MemNodes() []Node
+	Syntax() *Syntax
 
 	NumMem() int
 
-	Option() option.Type
-
-	SetOption(option.Type)
-
-	CurrentPrecReadNotNode() Node
-
-	PushPrecReadNotNode(node Node)
-
-	PopPrecReadNotNode(node Node)
-
-	Syntax() *Syntax
+	MemNodes() []Node
 
 	Warnings() WarnCallback
-
-	SetMemNode(i int, node Node)
-
 }

@@ -21,6 +21,6 @@ func (a *AnyCharNode) Name() string {
 func (a *AnyCharNode) AppendTo(_ *util.Indenter) {
 }
 
-func NewAnyChar() goni.Node {
+func NewAnyCharNode() goni.Node {
 	return &AnyCharNode{abstractNode: abstractNode{nodeType: node.CAny}}
 }

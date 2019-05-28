@@ -15,8 +15,8 @@ const flagNcCClassNot = 1 << 0
 type CClassNode struct {
 	abstractNode
 	flags int
-	bs    *goni.BitSet
-	mbuf  *coderange.Buffer
+	Bs    *goni.BitSet
+	Mbuf  *coderange.Buffer
 }
 
 func (cn *CClassNode) String() string {
@@ -29,16 +29,16 @@ func (cn *CClassNode) AppendTo(w *util.Indenter) {
 	cn.appendFlags(w)
 	w.NewLine()
 	w.Append(`bs:`)
-	cn.bs.AppendTo(w.Indent())
-	if cn.mbuf != nil {
+	cn.Bs.AppendTo(w.Indent())
+	if cn.Mbuf != nil {
 		w.NewLine()
 		w.Append(`mbuf: `)
-		cn.mbuf.AppendTo(w.Indent())
+		cn.Mbuf.AppendTo(w.Indent())
 	}
 }
 
 func (cn *CClassNode) BitSet() *goni.BitSet {
-	return cn.bs
+	return cn.Bs
 }
 
 func (cn *CClassNode) Name() string {
@@ -46,17 +46,17 @@ func (cn *CClassNode) Name() string {
 }
 
 func NewCClassNode() *CClassNode {
-	return &CClassNode{abstractNode: abstractNode{nodeType: node.CClass}, bs: goni.NewBitSet()}
+	return &CClassNode{abstractNode: abstractNode{nodeType: node.CClass}, Bs: goni.NewBitSet()}
 }
 
 func (cn *CClassNode) Clear() {
-	cn.bs.ClearAll()
+	cn.Bs.ClearAll()
 	cn.flags = 0
-	cn.mbuf = nil
+	cn.Mbuf = nil
 }
 
 func (cn *CClassNode) IsEmpty() bool {
-	return cn.mbuf == nil && cn.bs.IsEmpty()
+	return cn.Mbuf == nil && cn.Bs.IsEmpty()
 }
 
 func (cn *CClassNode) IsNot() bool {
@@ -78,37 +78,37 @@ func (cn *CClassNode) appendFlags(w *util.Indenter) {
 }
 
 func (cn *CClassNode) addCodeRangeToBuf(env goni.ScanEnvironment, from, to int, checkDup bool) {
-	cn.mbuf = coderange.AddToBuffer(cn.mbuf, env, from, to, checkDup)
+	cn.Mbuf = coderange.AddToBuffer(cn.Mbuf, env, from, to, checkDup)
 }
 
 func (cn *CClassNode) AddCodeRange(env goni.ScanEnvironment, from, to int, checkDup bool) {
-	cn.mbuf = coderange.Add(cn.mbuf, env, from, to, checkDup)
+	cn.Mbuf = coderange.Add(cn.Mbuf, env, from, to, checkDup)
 }
 
 func (cn *CClassNode) addAllMultiByteRange(env goni.ScanEnvironment) {
-	cn.mbuf = coderange.AddAllMultiByte(env, cn.mbuf)
+	cn.Mbuf = coderange.AddAllMultiByte(env, cn.Mbuf)
 }
 
 func (cn *CClassNode) clearNotFlag(env goni.ScanEnvironment) {
 	if cn.IsNot() {
-		cn.bs.InvertAll()
+		cn.Bs.InvertAll()
 		if !env.Encoding().IsSingleByte() {
-			cn.mbuf = coderange.NotBuffer(env, cn.mbuf)
+			cn.Mbuf = coderange.NotBuffer(env, cn.Mbuf)
 		}
 		cn.ClearNot()
 	}
 }
 
-func (cn *CClassNode) isOneChar() int {
+func (cn *CClassNode) IsOneChar() int {
 	if cn.IsNot() {
 		return -1
 	}
 	c := -1
-	if cn.mbuf != nil {
-		rng := cn.mbuf.Range()
+	if cn.Mbuf != nil {
+		rng := cn.Mbuf.Range()
 		c = rng[1]
 		if rng[0] == 1 && c == rng[2] {
-			if c < goni.SingleByteSize && cn.bs.At(c) {
+			if c < goni.SingleByteSize && cn.Bs.At(c) {
 				c = -1
 			}
 		} else {
@@ -117,7 +117,7 @@ func (cn *CClassNode) isOneChar() int {
 	}
 
 	for i := 0; i < goni.BitSetSize; i++ {
-		b1 := cn.bs.RoomAt(i)
+		b1 := cn.Bs.RoomAt(i)
 		if b1 != 0 {
 			if (b1&(b1-1)) == 0 && c == -1 {
 				c = goni.BitsInRoom*i + goni.BitCount(b1-1)
@@ -131,11 +131,11 @@ func (cn *CClassNode) isOneChar() int {
 
 func (cn *CClassNode) And(other *CClassNode, env goni.ScanEnvironment) {
 	not1 := cn.IsNot()
-	bsr1 := cn.bs
-	buf1 := cn.mbuf
+	bsr1 := cn.Bs
+	buf1 := cn.Mbuf
 	not2 := other.IsNot()
-	bsr2 := other.bs
-	buf2 := other.mbuf
+	bsr2 := other.Bs
+	buf2 := other.Mbuf
 
 	if not1 {
 		bs1 := goni.NewBitSet()
@@ -151,12 +151,12 @@ func (cn *CClassNode) And(other *CClassNode, env goni.ScanEnvironment) {
 
 	bsr1.And(bsr2)
 
-	if bsr1 != cn.bs {
-		cn.bs.Copy(bsr1)
+	if bsr1 != cn.Bs {
+		cn.Bs.Copy(bsr1)
 	}
 
 	if not1 {
-		cn.bs.InvertAll()
+		cn.Bs.InvertAll()
 	}
 
 	if !env.Encoding().IsSingleByte() {
@@ -170,17 +170,17 @@ func (cn *CClassNode) And(other *CClassNode, env goni.ScanEnvironment) {
 				pbuf = coderange.NotBuffer(env, pbuf)
 			}
 		}
-		cn.mbuf = pbuf
+		cn.Mbuf = pbuf
 	}
 }
 
 func (cn *CClassNode) Or(other *CClassNode, env goni.ScanEnvironment) {
 	not1 := cn.IsNot()
-	bsr1 := cn.bs
-	buf1 := cn.mbuf
+	bsr1 := cn.Bs
+	buf1 := cn.Mbuf
 	not2 := other.IsNot()
-	bsr2 := other.bs
-	buf2 := other.mbuf
+	bsr2 := other.Bs
+	buf2 := other.Mbuf
 
 	if not1 {
 		bs1 := goni.NewBitSet()
@@ -196,12 +196,12 @@ func (cn *CClassNode) Or(other *CClassNode, env goni.ScanEnvironment) {
 
 	bsr1.Or(bsr2)
 
-	if bsr1 != cn.bs {
-		cn.bs.Copy(bsr1)
+	if bsr1 != cn.Bs {
+		cn.Bs.Copy(bsr1)
 	}
 
 	if not1 {
-		cn.bs.InvertAll()
+		cn.Bs.InvertAll()
 	}
 
 	if !env.Encoding().IsSingleByte() {
@@ -214,13 +214,13 @@ func (cn *CClassNode) Or(other *CClassNode, env goni.ScanEnvironment) {
 				pbuf = coderange.NotBuffer(env, pbuf)
 			}
 		}
-		cn.mbuf = pbuf
+		cn.Mbuf = pbuf
 	}
 }
 
 func (cn *CClassNode) addCTypeByRange(ctype character.Type, not bool, env goni.ScanEnvironment, sbOut int, mbr []int) {
 	n := mbr[0]
-	bs := cn.bs
+	bs := cn.Bs
 
 	if !not {
 		i := 0
@@ -309,7 +309,7 @@ func (cn *CClassNode) AddCType(ctype character.Type, not, asciiRange bool, env g
 				if enc.MinLength() > 1 {
 					ccAscii.addCodeRangeToBuf(env, 0x00, 0x7F, true)
 				} else {
-					ccAscii.bs.CheckedSetRange(env, 0x00, 0x7F)
+					ccAscii.Bs.CheckedSetRange(env, 0x00, 0x7F)
 				}
 				ccWork.And(ccAscii, env)
 			}
@@ -339,14 +339,14 @@ func (cn *CClassNode) AddCType(ctype character.Type, not, asciiRange bool, env g
 		if not {
 			for c := 0; c < goni.SingleByteSize; c++ {
 				if !enc.IsCodeCType(c, ctype) {
-					cn.bs.CheckedSet(env, c)
+					cn.Bs.CheckedSet(env, c)
 				}
 			}
 			cn.addAllMultiByteRange(env)
 		} else {
 			for c := 0; c < goni.SingleByteSize; c++ {
 				if enc.IsCodeCType(c, ctype) {
-					cn.bs.CheckedSet(env, c)
+					cn.Bs.CheckedSet(env, c)
 				}
 			}
 		}
@@ -355,7 +355,7 @@ func (cn *CClassNode) AddCType(ctype character.Type, not, asciiRange bool, env g
 		if not {
 			for c := 0; c < goni.SingleByteSize; c++ {
 				if !enc.IsCodeCType(c, ctype) || c >= maxCode {
-					cn.bs.CheckedSet(env, c)
+					cn.Bs.CheckedSet(env, c)
 				}
 			}
 			if asciiRange {
@@ -364,7 +364,7 @@ func (cn *CClassNode) AddCType(ctype character.Type, not, asciiRange bool, env g
 		} else {
 			for c := 0; c < maxCode; c++ {
 				if enc.IsCodeCType(c, ctype) {
-					cn.bs.CheckedSet(env, c)
+					cn.Bs.CheckedSet(env, c)
 				}
 			}
 			if !asciiRange {
@@ -376,7 +376,7 @@ func (cn *CClassNode) AddCType(ctype character.Type, not, asciiRange bool, env g
 		if !not {
 			for c := 0; c < maxCode; c++ {
 				if enc.IsSbWord(c) {
-					cn.bs.CheckedSet(env, c)
+					cn.Bs.CheckedSet(env, c)
 				}
 			}
 			if !asciiRange {
@@ -386,7 +386,7 @@ func (cn *CClassNode) AddCType(ctype character.Type, not, asciiRange bool, env g
 			for c := 0; c < goni.SingleByteSize; c++ {
 				if enc.CodeToMbcLength(c) > 0 && /* check invalid code point */
 					!(enc.IsWord(c) || c >= maxCode) {
-					cn.bs.CheckedSet(env, c)
+					cn.Bs.CheckedSet(env, c)
 				}
 			}
 			if asciiRange {
@@ -430,9 +430,9 @@ func (cn *CClassNode) NextStateClass(arg *CCStateArg, ascCC *CClassNode, env gon
 
 	if arg.State == CCStateValue && arg.Type != CCValTypeClass {
 		if arg.Type == CCValTypeSb {
-			cn.bs.CheckedSet(env, arg.From)
+			cn.Bs.CheckedSet(env, arg.From)
 			if ascCC != nil {
-				ascCC.bs.Set(arg.From)
+				ascCC.Bs.Set(arg.From)
 			}
 		} else if arg.Type == CCValTypeCodePoint {
 			cn.AddCodeRange(env, arg.From, arg.From, true)
@@ -446,13 +446,13 @@ func (cn *CClassNode) NextStateClass(arg *CCStateArg, ascCC *CClassNode, env gon
 }
 
 func (cn *CClassNode) NextStateValue(arg *CCStateArg, ascCC *CClassNode, env goni.ScanEnvironment) {
-	bs := cn.bs
+	bs := cn.Bs
 	switch arg.State {
 	case CCStateValue:
 		if arg.Type == CCValTypeSb {
 			bs.CheckedSet(env, arg.From)
 			if ascCC != nil {
-				ascCC.bs.Set(arg.From)
+				ascCC.Bs.Set(arg.From)
 			}
 		} else if arg.Type == CCValTypeCodePoint {
 			cn.AddCodeRange(env, arg.From, arg.From, true)
@@ -479,7 +479,7 @@ func (cn *CClassNode) NextStateValue(arg *CCStateArg, ascCC *CClassNode, env gon
 				}
 				bs.CheckedSetRange(env, arg.From, arg.To)
 				if ascCC != nil {
-					ascCC.bs.SetRange(arg.From, arg.To)
+					ascCC.Bs.SetRange(arg.From, arg.To)
 				}
 			} else {
 				cn.AddCodeRange(env, arg.From, arg.To, true)
@@ -504,7 +504,7 @@ func (cn *CClassNode) NextStateValue(arg *CCStateArg, ascCC *CClassNode, env gon
 			bs.CheckedSetRange(env, arg.From, to)
 			cn.AddCodeRange(env, arg.From, arg.To, true)
 			if ascCC != nil {
-				ascCC.bs.SetRange(arg.From, to)
+				ascCC.Bs.SetRange(arg.From, to)
 				ascCC.AddCodeRange(env, arg.From, arg.To, false)
 			}
 		}
@@ -523,13 +523,13 @@ func (cn *CClassNode) NextStateValue(arg *CCStateArg, ascCC *CClassNode, env gon
 func (cn *CClassNode) isCodeInCCLength(encLength, code int) bool {
 	var found bool
 	if encLength > 1 || code >= goni.SingleByteSize {
-		if cn.mbuf == nil {
+		if cn.Mbuf == nil {
 			found = false
 		} else {
-			found = coderange.IsInCodeRange(cn.mbuf.Range(), code)
+			found = coderange.IsInCodeRange(cn.Mbuf.Range(), code)
 		}
 	} else {
-		found = cn.bs.At(code)
+		found = cn.Bs.At(code)
 	}
 
 	if cn.IsNot() {

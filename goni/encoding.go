@@ -3,6 +3,10 @@ package goni
 import "github.com/lyraproj/goni/goni/character"
 
 type Encoding interface {
+	// CodeToMbc extracts code point into it's multibyte representation and appends
+	// it to the given slice. The result of the append is returned
+	CodeToMbc(code int, bytes []byte) []byte
+
 	// CodeToMbcLength returns character length given a code point
 	CodeToMbcLength(code int) int
 
@@ -29,6 +33,8 @@ type Encoding interface {
 	// MinLength returns minimum character byte length that can appear in an encoding
 	MinLength() int
 
+	PrevCharHead(bytes []byte, p, s, end int) int
+
 	PropertyNameToCType(name []byte, p, end int) character.Type
 
 	// IsCodeCType performs a check whether given code is of given character type (e.g. used by
@@ -42,4 +48,5 @@ type Encoding interface {
 	IsWord(code int) bool
 	IsUpper(code int) bool
 	IsNewLine(code int) bool
+	IsUnicode() bool
 }

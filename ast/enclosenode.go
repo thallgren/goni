@@ -15,7 +15,7 @@ type EncloseNode struct {
 	stateNode
 	typ              enclose.Type
 	RegNum           int
-	option           option.Type
+	Option           option.Type
 	target           goni.Node     /* EncloseNode : ENCLOSE_MEMORY */
 	callAddr         int    // AbsAddrType
 	minLength        int
@@ -33,7 +33,7 @@ func NewEncloseNode(typ enclose.Type) *EncloseNode {
 func NewMemory(option option.Type, isNamed bool) *EncloseNode {
 	en := NewEncloseNode(enclose.Memory)
 	if config.UseSubExpCall {
-		en.option = option
+		en.Option = option
 	}
 	if isNamed {
 		en.SetNamedGroup()
@@ -43,7 +43,7 @@ func NewMemory(option option.Type, isNamed bool) *EncloseNode {
 
 func NewOption(option option.Type) *EncloseNode {
 	en := NewEncloseNode(enclose.Option)
-	en.option = option
+	en.Option = option
 	return en
 }
 
@@ -56,7 +56,7 @@ func (en *EncloseNode) AppendTo(w *util.Indenter) {
 	w.Append(`regNum: `)
 	w.AppendInt(en.RegNum)
 	w.Append(`, option: `)
-	en.option.AppendString(w)
+	en.Option.AppendString(w)
 	w.Append(`, callAddr: `)
 	w.AppendInt(en.callAddr)
 	w.Append(`, minLength: `)

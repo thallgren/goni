@@ -7,6 +7,7 @@ import (
 	"github.com/lyraproj/goni/goni"
 	"github.com/lyraproj/goni/goni/anchor"
 	"github.com/lyraproj/goni/goni/character"
+	"github.com/lyraproj/goni/goni/coderange"
 	"github.com/lyraproj/goni/goni/enclose"
 	"github.com/lyraproj/goni/goni/node"
 	"github.com/lyraproj/goni/goni/option"
@@ -27,7 +28,7 @@ type Parser struct {
 	returnCode int
 }
 
-func (px *Parser) init(regex *Regex, syntax *goni.Syntax, bytes []byte, p, end int, warnings WarnCallback) {
+func (px *Parser) init(regex *regex, syntax *goni.Syntax, bytes []byte, p, end int, warnings goni.WarnCallback) {
 	px.Lexer.init(regex, syntax, bytes, p, end, warnings)
 }
 
@@ -42,7 +43,7 @@ func (px *Parser) parsePosixBracket(cc, ascCc *ast.CClassNode) bool {
 
 	enc := px.enc
 	if enc.StrLength(px.bytes, px.p, px.stop) >= posixBracketNameMinLen+3 {
-		opt := px.env.Option()
+		opt := px.env.options
 		asciiRange := opt.IsAsciiRange() && !opt.IsPosixBracketAllRange()
 
 		for i, name := range posix.PBSNamesLower {
@@ -133,12 +134,12 @@ func (px *Parser) parseCharClass(ascNode **ast.CClassNode) *ast.CClassNode {
 		if !px.codeExistCheck(']', true) {
 			panic(newSyntaxException(err.EmptyCharClass))
 		}
-		env.CCEscWarn("]")
+		env.ccEscWarn("]")
 		px.token.Type = TkChar /* allow []...] */
 	}
 
 	cc = ast.NewCClassNode()
-	if env.Option().IsIgnoreCase() {
+	if env.options.IsIgnoreCase() {
 		ascCc = ast.NewCClassNode()
 		*ascNode = ascCc
 	}
@@ -213,7 +214,7 @@ func (px *Parser) parseCharClass(ascNode **ast.CClassNode) *ast.CClassNode {
 
 		case TkPosixBracketOpen:
 			if px.parsePosixBracket(cc, ascCc) { /* true: is not POSIX bracket */
-				env.CCEscWarn("[")
+				env.ccEscWarn("[")
 				px.p = px.token.backP
 				arg.To = px.token.getC()
 				arg.ToIsRaw = false
@@ -223,7 +224,7 @@ func (px *Parser) parseCharClass(ascNode **ast.CClassNode) *ast.CClassNode {
 			}
 
 		case TkCharType:
-			opt := env.Option()
+			opt := env.options
 			cc.AddCType(px.token.getPropCType(), px.token.getPropNot(), opt.IsAsciiRange(), env, &px.value)
 			if ascCc != nil {
 				if px.token.getPropCType() != character.Word {
@@ -251,7 +252,7 @@ func (px *Parser) parseCharClass(ascNode **ast.CClassNode) *ast.CClassNode {
 					break
 				}
 				if px.token.Type == TkCcAnd {
-					env.CCEscWarn("-")
+					env.ccEscWarn("-")
 					px.parseCharClassRangeEndVal(cc, ascCc, arg) // goto range_end_val
 					break
 				}
@@ -265,11 +266,11 @@ func (px *Parser) parseCharClass(ascNode **ast.CClassNode) *ast.CClassNode {
 				px.fetchTokenInCC()
 				fetched = true
 				if px.token.Type == TkCcRange || andStart {
-					env.CCEscWarn("-")
+					env.ccEscWarn("-")
 				} /* [--x] or [a&&-x] is warned. */
 				px.parseCharClassValEntry(cc, ascCc, arg) // goto val_entry
 			} else if arg.State == ast.CCStateRange {
-				env.CCEscWarn("-")
+				env.ccEscWarn("-")
 				px.parseCharClassSbChar(cc, ascCc, arg) // goto sb_char /* [!--x] is allowed */
 			} else { /* CCS_COMPLETE */
 				px.fetchTokenInCC()
@@ -279,13 +280,13 @@ func (px *Parser) parseCharClass(ascNode **ast.CClassNode) *ast.CClassNode {
 					break
 				}
 				if px.token.Type == TkCcAnd {
-					env.CCEscWarn("-")
+					env.ccEscWarn("-")
 					px.parseCharClassRangeEndVal(cc, ascCc, arg) // goto range_end_val
 					break
 				}
 
 				if snx.IsBehavior(syntax.AllowDoubleRangeOpInCC) {
-					env.CCEscWarn("-")
+					env.ccEscWarn("-")
 					// parseCharClassSbChar(cc, ascCc, arg); // goto sb_char /* [0-9-a] is allowed as [0-9\-a] */
 					px.parseCharClassRangeEndVal(cc, ascCc, arg) // goto range_end_val
 					break
@@ -426,7 +427,7 @@ func (px *Parser) parseEnclose(term TokenType) goni.Node {
 
 	env := px.env
 	enc := px.enc
-	opt := env.Option()
+	opt := env.options
 	snx := px.syntax
 
 	if px.peekIs('?') && snx.IsOp2(syntax.Op2QMarkGroupEffect) {
@@ -449,7 +450,7 @@ func (px *Parser) parseEnclose(term TokenType) goni.Node {
 		case '!': /*         preceding read */
 			nd = ast.NewAnchorNode(anchor.PrecReadNot, false)
 			if snx.IsOp3(syntax.Op3OptionECMAScript) {
-				env.PushPrecReadNotNode(nd)
+				env.pushPrecReadNotNode(nd)
 			}
 		case '>': /* (?>...) stop backtrack */
 			nd = ast.NewEncloseNode(enclose.StopBacktrack) // node_new_enclose
@@ -503,7 +504,7 @@ func (px *Parser) parseEnclose(term TokenType) goni.Node {
 					}
 				} // USE_NAMED_GROUP
 				en := ast.NewMemory(opt, false)
-				num := env.AddMemEntry()
+				num := env.addMemEntry()
 				if num >= option.BitsNum {
 					panic(newSyntaxException(err.GroupNumberOverForCaptureHistory))
 				}
@@ -637,11 +638,11 @@ func (px *Parser) parseEnclose(term TokenType) goni.Node {
 					return nd
 				}
 				if px.c == ':' {
-					prev := env.Option()
-					env.SetOption(opt)
+					prev := env.options
+					env.options = opt
 					px.fetchToken()
 					target := px.parseSubExp(term)
-					env.SetOption(prev)
+					env.options = prev
 					en := ast.NewOption(opt)
 					en.SetTarget(target)
 					nd = en
@@ -664,8 +665,8 @@ func (px *Parser) parseEnclose(term TokenType) goni.Node {
 			px.returnCode = 1 /* group */
 			return nd
 		}
-		en := ast.NewMemory(env.Option(), false)
-		num := env.AddMemEntry()
+		en := ast.NewMemory(env.options, false)
+		num := env.addMemEntry()
 		en.RegNum = num
 		nd = en
 	}
@@ -677,17 +678,17 @@ func (px *Parser) parseEnclose(term TokenType) goni.Node {
 		an := nd.(*ast.AnchorNode)
 		an.SetTarget(target)
 		if snx.IsOp3(syntax.Op3OptionECMAScript) && an.AnchorType() == anchor.PrecReadNot {
-			env.PopPrecReadNotNode(an)
+			env.popPrecReadNotNode(an)
 		}
 	} else {
 		en := nd.(*ast.EncloseNode)
 		en.SetTarget(target)
 		if en.EncloseType() == enclose.Memory {
 			if snx.IsOp3(syntax.Op3OptionECMAScript) {
-				en.ContainingAnchor = env.CurrentPrecReadNotNode()
+				en.ContainingAnchor = env.currentPrecReadNotNode()
 			}
 			/* Don't move this to previous of parse_subexp() */
-			env.SetMemNode(en.RegNum, en)
+			env.setMemNode(en.RegNum, en)
 		} else if en.EncloseType() == enclose.Condition {
 			if target.Type() != node.Alt { /* convert (?(cond)yes) to (?(cond)yes|empty) */
 				en.SetTarget(ast.NewAlt(target, ast.NewAlt(ast.StringNodeEmpty, nil)))
@@ -697,6 +698,401 @@ func (px *Parser) parseEnclose(term TokenType) goni.Node {
 	px.returnCode = 0
 	return nd // ??
 }
+
+func (px *Parser) parseEncloseNamedGroup2(listCapture bool) goni.Node {
+	nm := px.p
+	num := px.fetchName(px.c, false)
+	nameEnd := px.value
+	num = px.env.addMemEntry()
+	if listCapture && num >= option.BitsNum {
+		panic(newSyntaxException(err.GroupNumberOverForCaptureHistory))
+	}
+
+	px.regex.nameAdd(px.bytes, nm, nameEnd, num, px.syntax)
+	en := ast.NewMemory(px.env.options, true)
+	en.RegNum = num
+	if listCapture {
+		px.env.captureHistory = option.OnAtSimple(px.env.captureHistory, num)
+	}
+	px.env.numNamed++
+	return en
+}
+
+func (px *Parser) findStrPosition(s []int, n, from, to int, nextChar *int) int {
+	p := from
+	enc := px.enc
+	for p < to {
+		x, l := enc.MbcToCode(px.bytes, p, to)
+		q := p + l
+		if x == s[0] {
+			i := 1
+			for ; i < n && q < to; i++ {
+				x, l = enc.MbcToCode(px.bytes, q, to)
+				if x != s[i] {
+					break
+				}
+				q += l
+			}
+			if i >= n {
+				if px.bytes[*nextChar] != 0 {
+					*nextChar = q // we may need zero term semantics...
+				}
+				return p
+			}
+		}
+		p = q
+	}
+	return -1
+}
+
+func (px *Parser) parseExp(term TokenType) goni.Node {
+	if px.token.Type == term {
+		return ast.StringNodeEmpty
+	}
+	var nd goni.Node
+	group := false
+
+	switch px.token.Type {
+	case TkAlt, TkEOT:
+		return ast.StringNodeEmpty // end_of_token:, node_new_empty
+
+	case TkSubexpOpen:
+		nd = px.parseEnclose(TkSubexpClose)
+		if px.returnCode == 1 {
+			group = true
+		} else if px.returnCode == 2 { /* option only */
+			env := px.env
+			prev := env.options
+			en := nd.(*ast.EncloseNode)
+			env.options = en.Option
+			px.fetchToken()
+			target := px.parseSubExp(term)
+			env.options = prev
+			en.SetTarget(target)
+			return nd
+		}
+	case TkSubexpClose:
+		if !px.syntax.IsBehavior(syntax.AllowUnmatchedCloseSubexp) {
+			panic(newSyntaxException(err.UnmatchedCloseParenthesis))
+		}
+		if px.token.escaped {
+			return px.parseExpTkRawByte(group) // goto tk_raw_byte
+		}
+		return px.parseExpTkByte(group) // goto tk_byte
+	case TkLineBreak:
+		nd = px.parseLineBreak()
+	case TkExtendedGraphemeCluster:
+		nd = px.parseExtendedGraphemeCluster()
+	case TkKeep:
+		nd = ast.NewAnchorNode(anchor.Keep, false)
+	case TkString:
+		return px.parseExpTkByte(group) // tk_byte:
+	case TkRawByte:
+		return px.parseExpTkRawByte(group) // tk_raw_byte:
+	case TkCodePoint:
+		return px.parseStringLoop(StringNode.fromCodePoint(token.getCode(), enc), group)
+	case TkQuoteOpen:
+		nd = px.parseQuoteOpen()
+	case TkCharType:
+		nd = px.parseCharType(nd)
+	case TkCharProperty:
+		nd = px.parseCharProperty()
+	case TkCcOpen:
+		var ascPtr *ast.CClassNode
+		cc := px.parseCharClass(&ascPtr)
+		code := cc.IsOneChar()
+		if code != -1 {
+			return px.parseStringLoop(StringNode.fromCodePoint(code, enc), group)
+		}
+
+		nd = cc
+		if px.env.options.IsIgnoreCase() {
+			nd = cClassCaseFold(nd, cc, ascPtr)
+		}
+
+	case TkAnyChar:
+		nd = ast.NewAnyCharNode()
+	case TkAnycharAnytime:
+		nd = px.parseAnycharAnytime()
+	case TkBackRef:
+		nd = px.parseBackref()
+	case TkCall:
+		//noinspection GoBoolExpressions
+		if config.UseSubExpCall {
+			nd = px.parseCall()
+		}
+	case TkAnchor:
+		nd = ast.NewAnchorNode(px.token.getAnchorSubtype(), px.token.getAnchorASCIIRange())
+	case TkOpRepeat, TkInterval:
+		snx := px.syntax
+		if snx.IsBehavior(syntax.ContextIndepRepeatOps) {
+			if snx.IsBehavior(syntax.ContextInvalidRepeatOps) {
+				panic(newSyntaxException(err.TargetOfRepeatOperatorNotSpecified))
+			} else {
+				nd = ast.StringNodeEmpty // node_new_empty
+			}
+		} else {
+			return px.parseExpTkByte(group) // goto tk_byte
+		}
+		break
+
+	default:
+		panic(newSyntaxException(err.ParserBug))
+	}
+
+	//targetp = node;
+
+	px.fetchToken() // re_entry:
+
+	return px.parseExpRepeat(nd, group) // repeat:
+}
+
+func (px *Parser) parseLineBreak() goni.Node {
+	enc := px.enc
+	buflb := make([]byte, config.EncCodeToMbcMaxlen*2)
+	len1 := enc.CodeToMbc(0x0D, buflb, 0)
+	len2 := enc.CodeToMbc(0x0A, buflb, len1)
+	left := ast.NewStringNodeShared(buflb[:len1+len2])
+	left.SetRaw()
+	/* [\x0A-\x0D] or [\x0A-\x0D\x{85}\x{2028}\x{2029}] */
+	right := ast.NewCClassNode()
+	env := px.env
+	if enc.MinLength() > 1 {
+		right.AddCodeRange(env, 0x0A, 0x0D, true)
+	} else {
+		right.Bs.CheckedSetRange(env, 0x0A, 0x0D)
+	}
+
+	if enc.IsUnicode() {
+		/* UTF-8, UTF-16BE/LE, UTF-32BE/LE */
+		right.AddCodeRange(env, 0x85, 0x85, true)
+		right.AddCodeRange(env, 0x2028, 0x2029, true)
+	}
+	/* (?>...) */
+	en := ast.NewEncloseNode(enclose.StopBacktrack)
+	en.SetTarget(ast.NewAlt(left, ast.NewAlt(right, nil)))
+	return en
+}
+
+var graphemeClusterBreakExtend = []byte(`Grapheme_Cluster_Break=Extend`)
+var graphemeClusterBreakControl = []byte(`Grapheme_Cluster_Break=Control`)
+var graphemeClusterBreakPrepend = []byte(`Grapheme_Cluster_Break=Prepend`)
+var graphemeClusterBreakL = []byte(`Grapheme_Cluster_Break=L`)
+var graphemeClusterBreakV = []byte(`Grapheme_Cluster_Break=V`)
+var graphemeClusterBreakLV = []byte(`Grapheme_Cluster_Break=LV`)
+var graphemeClusterBreakLVT = []byte(`Grapheme_Cluster_Break=LVT`)
+var graphemeClusterBreakT = []byte(`Grapheme_Cluster_Break=T`)
+var regionalIndicator = []byte(`Regional_Indicator`)
+var extendedPictographic = []byte(`Extended_Pictographic`)
+var graphemeClusterBreakSpacingMark = []byte(`Grapheme_Cluster_Break=SpacingMark`)
+
+func (px *Parser) addPropertyToCC(cc *ast.CClassNode, propName []byte, not bool) {
+	ctype := px.enc.PropertyNameToCType(propName, 0, len(propName))
+	cc.AddCType(ctype, not, false, px.env, &px.value)
+}
+
+func (px *Parser) createPropertyNode(nodes []goni.Node, np int, propName []byte) {
+	cc := ast.NewCClassNode()
+	px.addPropertyToCC(cc, propName, false)
+	nodes[np] = cc
+}
+
+func (px *Parser) quantifierNode(nodes []goni.Node, np, lower, upper int) {
+	qnf := ast.NewQuantifierNode(lower, upper, false)
+	qnf.SetTarget(nodes[np])
+	nodes[np] = qnf
+}
+
+func (px *Parser) quantifierPropertyNode(nodes []goni.Node, np int, propName []byte, repetitions rune) {
+	lower := 0
+	upper := ast.QuantifierRepeatInfinite
+
+	px.createPropertyNode(nodes, np, propName)
+	switch repetitions {
+	case '?':
+		upper = 1
+	case '+':
+		lower = 1
+	case '*':
+		// No op
+	case '2':
+		lower = 2
+		upper = lower
+	default:
+		panic(newSyntaxException(err.ParserBug))
+	}
+
+	px.quantifierNode(nodes, np, lower, upper)
+}
+
+func (px *Parser) createNodeFromArray(list bool, nodes []goni.Node, np, nodeArray int) {
+	i := 0
+	for nodes[nodeArray+i] != nil {
+		i++
+	}
+
+	var tmp *ast.ListNode
+	for i--; i >= 0; i-- {
+		n := nodes[nodeArray+i]
+		if list {
+			tmp = ast.NewList(n, tmp)
+		} else {
+			tmp = ast.NewAlt(n, tmp)
+		}
+		nodes[np] = tmp
+		nodes[nodeArray+i] = nil
+	}
+}
+
+func (px *Parser) createNodeFromArray2(nodes []goni.Node, nodeArray int) *ast.ListNode {
+	i := 0
+	for nodes[nodeArray+i] != nil {
+		i++
+	}
+
+	var np *ast.ListNode
+	for i--; i >= 0; i-- {
+		np = ast.NewAlt(nodes[nodeArray+i], np)
+		nodes[nodeArray+i] = nil
+	}
+	return np
+}
+
+const nodeCommonSize = 16
+
+func (px *Parser) parseExtendedGraphemeCluster() goni.Node {
+	nodes := make([]goni.Node, nodeCommonSize)
+	var anyTargetPosition int
+	alts := 0
+
+	enc := px.enc
+	env := px.env
+
+	strNode := ast.NewStringNodeWithCapacity(config.EncCodeToMbcMaxlen * 2)
+	strNode.SetRaw()
+	strNode.CatCode(0x0D, enc)
+	strNode.CatCode(0x0A, enc)
+	nodes[alts] = strNode
+
+	//noinspection GoBoolExpressions
+	if config.UseUnicodeProperties && enc.IsUnicode() {
+		cc := ast.NewCClassNode()
+		nodes[alts+1] = cc
+		px.addPropertyToCC(cc, graphemeClusterBreakControl, false)
+		if enc.MinLength() > 1 {
+			cc.AddCodeRange(env, 0x000A, 0x000A, true)
+			cc.AddCodeRange(env, 0x000D, 0x000D, true)
+		} else {
+			cc.Bs.Set(0x0A)
+			cc.Bs.Set(0x0D)
+		}
+
+		list := alts + 3
+		px.quantifierPropertyNode(nodes, list+0, graphemeClusterBreakPrepend, '*')
+		coreAlts := list + 2
+
+		HList := coreAlts + 1
+		px.quantifierPropertyNode(nodes, HList+0, graphemeClusterBreakL, '*')
+
+		HAlt2 := HList + 2
+		px.quantifierPropertyNode(nodes, HAlt2+0, graphemeClusterBreakV, '+')
+
+		HList2 := HAlt2 + 2
+		px.createPropertyNode(nodes, HList2+0, graphemeClusterBreakLV)
+		px.quantifierPropertyNode(nodes, HList2+1, graphemeClusterBreakV, '*')
+		px.createNodeFromArray(true, nodes, HAlt2+1, HList2)
+		px.createPropertyNode(nodes, HAlt2+2, graphemeClusterBreakLVT)
+		px.createNodeFromArray(false, nodes, HList+1, HAlt2)
+		px.quantifierPropertyNode(nodes, HList+2, graphemeClusterBreakT, '*')
+		px.createNodeFromArray(true, nodes, coreAlts+0, HList)
+
+		px.quantifierPropertyNode(nodes, coreAlts+1, graphemeClusterBreakL, '+')
+		px.quantifierPropertyNode(nodes, coreAlts+2, graphemeClusterBreakT, '+')
+		px.quantifierPropertyNode(nodes, coreAlts+3, regionalIndicator, '2')
+
+		XPList := coreAlts + 5
+		px.createPropertyNode(nodes, XPList+0, extendedPictographic)
+
+		ExList := XPList + 2
+		px.quantifierPropertyNode(nodes, ExList+0, graphemeClusterBreakExtend, '*')
+		strNode = ast.NewStringNodeWithCapacity(config.EncCodeToMbcMaxlen)
+		strNode.SetRaw()
+		strNode.CatCode(0x200D, enc)
+		nodes[ExList+1] = strNode
+		px.createPropertyNode(nodes, ExList+2, extendedPictographic)
+		px.createNodeFromArray(true, nodes, XPList+1, ExList)
+
+		px.quantifierNode(nodes, XPList+1, 0, ast.QuantifierRepeatInfinite)
+		px.createNodeFromArray(true, nodes, coreAlts+4, XPList)
+
+		cc = ast.NewCClassNode()
+		nodes[coreAlts+5] = cc
+		if enc.MinLength() > 1 {
+			px.addPropertyToCC(cc, graphemeClusterBreakControl, false)
+			cc.AddCodeRange(env, 0x000A, 0x000A, true)
+			cc.AddCodeRange(env, 0x000D, 0x000D, true)
+			cc.Mbuf = coderange.NotBuffer(env, cc.Mbuf)
+		} else {
+			px.addPropertyToCC(cc, graphemeClusterBreakControl, true)
+			cc.Bs.Clear(0x0A)
+			cc.Bs.Clear(0x0D)
+		}
+		px.createNodeFromArray(false, nodes, list+1, coreAlts)
+
+		px.createPropertyNode(nodes, list+2, graphemeClusterBreakExtend)
+		cc = nodes[list+2].(*ast.CClassNode)
+		px.addPropertyToCC(cc, graphemeClusterBreakSpacingMark, false)
+		cc.AddCodeRange(px.env, 0x200D, 0x200D, true)
+		px.quantifierNode(nodes, list+2, 0, ast.QuantifierRepeatInfinite)
+		px.createNodeFromArray(true, nodes, alts+2, list)
+
+		anyTargetPosition = 3
+	} else { // enc.isUnicode()
+		anyTargetPosition = 1
+	}
+
+	any := ast.NewAnyCharNode()
+	opt := ast.NewOption(option.OnOff(env.options, option.MultiLine, false))
+	opt.SetTarget(any)
+	nodes[anyTargetPosition] = opt
+
+	topAlt := px.createNodeFromArray2(nodes, alts)
+	encl := ast.NewEncloseNode(enclose.StopBacktrack)
+	encl.SetTarget(topAlt)
+
+	//noinspection GoBoolExpressions
+	if config.UseUnicodeProperties && enc.IsUnicode() {
+		opt = ast.NewOption(option.OnOff(env.options, option.IgnoreCase, true))
+		opt.SetTarget(encl)
+		return opt
+	}
+	return encl
+}
+
+func (px *Parser) parseExpTkByte(group bool) goni.Node {
+	nd := ast.NewStringNodeShared(px.bytes[px.token.backP:px.p]); // tk_byte:
+	return px.parseStringLoop(nd, group);
+}
+
+func (px *Parser) parseStringLoop(node *ast.StringNode, group bool) {
+	for {
+		px.fetchToken();
+		if (px.token.Type == TkString) {
+			if (px.token.backP == node.end()) {
+				node.end = p; // non escaped character, remain shared, just increase shared range
+			} else {
+				node.catBytes(bytes, px.token.backP, p); // non continuous string stream, need to COW
+			}
+		} else if (px.token.type == TokenType.CODE_POINT) {
+			node.catCode(px.token.getCode(), enc);
+		} else {
+			break;
+		}
+	}
+	// targetp = node;
+	return px.parseExpRepeat(node, group); // string_end:, goto repeat
+}
+
 
 func (px *Parser) parseSubExp(term TokenType) goni.Node {
 	nd := px.parseBranch(term)
@@ -721,10 +1117,6 @@ func (px *Parser) parseSubExp(term TokenType) goni.Node {
 		return top
 	}
 	panic(parseSubExpError(term))
-}
-
-func (px *Parser) parseEncloseNamedGroup2(b bool) goni.Node {
-	return nil // TODO
 }
 
 func (px *Parser) parseBranch(tokenType TokenType) goni.Node {

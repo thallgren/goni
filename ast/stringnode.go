@@ -33,8 +33,37 @@ func NewStringNode() *StringNode {
 	return &StringNode{abstractNode: abstractNode{nodeType: node.Str}, bytes: make([]byte, 0, nodeStrBufSize)}
 }
 
+func NewStringNodeShared(bytes []byte) *StringNode {
+	s := &StringNode{abstractNode: abstractNode{nodeType: node.Str}, bytes: bytes}
+	s.SetShared()
+	return s
+}
+
 func (sn *StringNode) String() string {
 	return goni.String(sn)
+}
+
+func (sn *StringNode) splitLastChar(enc goni.Encoding) (n *StringNode) {
+	end := len(sn.bytes)
+	if end > 0 {
+		prev := enc.PrevCharHead(sn.bytes, 0, end, end)
+		if prev != -1 && prev > 0 { /* can be split */
+			n = NewStringNodeShared(sn.bytes[prev:end])
+			if sn.IsRaw() {
+				n.SetRaw()
+			}
+			end = prev
+		}
+	}
+	return
+}
+
+func (sn *StringNode) canBeSplit(enc goni.Encoding) bool {
+	end := len(sn.bytes)
+	if end > 0 {
+		return enc.Length(sn.bytes, 0, end) < end
+	}
+	return false
 }
 
 func (sn *StringNode) AppendTo(w *util.Indenter) {
@@ -48,16 +77,24 @@ func (sn *StringNode) AppendTo(w *util.Indenter) {
 	for _, b := range sn.bytes {
 		u := uint(b)
 		if u >= 0x20 && u < 0x7f {
-			w.Append(string(b));
+			w.Append(string(b))
 		} else {
-			w.Printf("[0x%02x]", u);
+			w.Printf("[0x%02x]", u)
 		}
 	}
-	w.Append("'");
+	w.Append("'")
+}
+
+func (sn *StringNode) End() int {
+	return len(sn.bytes)
 }
 
 func (sn *StringNode) Name() string {
 	return `String`
+}
+
+func (sn *StringNode) CatCode(code int, enc goni.Encoding) {
+	sn.bytes = enc.CodeToMbc(code, sn.bytes);
 }
 
 func (sn *StringNode) ClearAmbig() {
@@ -73,7 +110,7 @@ func (sn *StringNode) ClearShared() {
 }
 
 func (sn *StringNode) ClearRaw() {
-	sn.flag &=^NstrRaw
+	sn.flag &= ^NstrRaw
 }
 
 func (sn *StringNode) IsAmbig() bool {
@@ -93,7 +130,7 @@ func (sn *StringNode) IsRaw() bool {
 }
 
 func (sn *StringNode) SetAmbig() {
-	sn.flag |=  NstrAmbig
+	sn.flag |= NstrAmbig
 }
 
 func (sn *StringNode) SetDontGetOptInfo() {

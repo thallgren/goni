@@ -15,16 +15,16 @@ import (
 
 type Lexer struct {
 	scannerSupport
-	regex  *Regex
-	env    goni.ScanEnvironment
+	regex  *regex
+	env    *scanEnvironment
 	syntax *goni.Syntax
 	token  Token
 }
 
-func (lx *Lexer) init(regex *Regex, syntax *goni.Syntax, bytes []byte, p, end int, warnings WarnCallback) {
+func (lx *Lexer) init(regex *regex, syntax *goni.Syntax, bytes []byte, p, end int, warnings goni.WarnCallback) {
 	lx.scannerSupport.init(regex.enc, bytes, p, end)
 	lx.regex = regex
-	lx.env = NewScanEnvironment(regex, syntax, warnings)
+	lx.env = newScanEnvironment(regex, syntax, warnings)
 	lx.syntax = syntax
 }
 
@@ -116,10 +116,9 @@ func (lx *Lexer) fetchRangeQuantifier() int {
 		panic(newSyntaxException(err.UpperSmallerThanLowerInRepeatRange))
 	}
 
-	t := &lx.token
-	t.typ = TkInterval
-	t.setRepeatLower(low)
-	t.setRepeatUpper(up)
+	lx.token.Type = TkInterval
+	lx.token.setRepeatLower(low)
+	lx.token.setRepeatUpper(up)
 
 	return ret /* 0: normal {n,m}, 2: fixed {n} */
 }
@@ -563,7 +562,7 @@ var send = []int{':', ']'}
 
 func (lx *Lexer) fetchTokenInCCForCharType(flag bool, typ character.Type) {
 	token := &lx.token
-	token.typ = TkCharType
+	token.Type = TkCharType
 	token.setPropCType(typ)
 	token.setPropNot(flag)
 }
@@ -574,7 +573,7 @@ func (lx *Lexer) fetchTokenInCCForP() {
 	if c2 == '{' && snx.IsOp2(syntax.Op2EscPBraceCharProperty) {
 		lx.inc()
 		token := &lx.token
-		token.typ = TkCharProperty
+		token.Type = TkCharProperty
 		token.setPropNot(lx.c == 'P')
 
 		if snx.IsOp2(syntax.Op2EscPBraceCircumflexNot) {
@@ -615,7 +614,7 @@ func (lx *Lexer) fetchTokenInCCForX() {
 
 		if lx.p > last+enc.Length(lx.bytes, last, lx.stop) && lx.left() && lx.peekIs('}') {
 			lx.inc()
-			token.typ = TkCodePoint
+			token.Type = TkCodePoint
 			token.base = 16
 			token.setCode(num)
 		} else {
@@ -630,7 +629,7 @@ func (lx *Lexer) fetchTokenInCCForX() {
 		if lx.p == last { /* can't read nothing. */
 			num = 0 /* but, it's not error */
 		}
-		token.typ = TkRawByte
+		token.Type = TkRawByte
 		token.base = 16
 		token.setC(num)
 	}
@@ -654,7 +653,7 @@ func (lx *Lexer) fetchTokenInCCForU() {
 			num = 0 /* but, it's not error */
 		}
 		token := lx.token
-		token.typ = TkCodePoint
+		token.Type = TkCodePoint
 		token.base = 16
 		token.setCode(num)
 	}
@@ -672,7 +671,7 @@ func (lx *Lexer) fetchTokenInCCForDigit() {
 			num = 0 /* but, it's not error */
 		}
 		token := lx.token
-		token.typ = TkRawByte
+		token.Type = TkRawByte
 		token.base = 8
 		token.setC(num)
 	}
@@ -684,19 +683,19 @@ func (lx *Lexer) fetchTokenInCCForPosixBracket() {
 		lx.token.backP = lx.p /* point at '[' is readed */
 		lx.inc()
 		if lx.strExistCheckWithEsc(send, len(send), ']') {
-			lx.token.typ = TkPosixBracketOpen
+			lx.token.Type = TkPosixBracketOpen
 		} else {
 			lx.unfetch()
 			// remove duplication, goto cc_in_cc;
 			if snx.IsOp2(syntax.Op2CClassSetOp) {
-				lx.token.typ = TkCcCcOpen
+				lx.token.Type = TkCcCcOpen
 			} else {
 				lx.env.CCEscWarn("[")
 			}
 		}
 	} else { // cc_in_cc:
 		if snx.IsOp2(syntax.Op2CClassSetOp) {
-			lx.token.typ = TkCcCcOpen
+			lx.token.Type = TkCcCcOpen
 		} else {
 			lx.env.CCEscWarn("[")
 		}
@@ -706,32 +705,32 @@ func (lx *Lexer) fetchTokenInCCForPosixBracket() {
 func (lx *Lexer) fetchTokenInCCForAnd() {
 	if lx.syntax.IsOp2(syntax.Op2CClassSetOp) && lx.left() && lx.peekIs('&') {
 		lx.inc()
-		lx.token.typ = TkCcAnd
+		lx.token.Type = TkCcAnd
 	}
 }
 
 func (lx *Lexer) fetchTokenInCC() TokenType {
 	if !lx.left() {
-		lx.token.typ = TkEOT
+		lx.token.Type = TkEOT
 		return TkEOT
 	}
 
 	lx.fetch()
 	c := lx.c
 	token := lx.token
-	token.typ = TkChar
+	token.Type = TkChar
 	token.base = 0
 	token.setC(c)
 	token.escaped = false
 
 	if c == ']' {
-		token.typ = TkCcClose
+		token.Type = TkCcClose
 	} else if c == '-' {
-		token.typ = TkCcRange
+		token.Type = TkCcRange
 	} else if c == lx.syntax.MetaCharTable.Esc {
 		snx := lx.syntax
 		if !snx.IsBehavior(syntax.BackslashEscapeInCC) {
-			return token.typ
+			return token.Type
 		}
 		if !lx.left() {
 			panic(newSyntaxException(err.EndPatternAtEscape))
@@ -775,7 +774,7 @@ func (lx *Lexer) fetchTokenInCC() TokenType {
 			lx.fetchEscapedValue()
 			if token.getC() != c {
 				token.setCode(c)
-				token.typ = TkCodePoint
+				token.Type = TkCodePoint
 			}
 		}
 	} else if c == '[' {
@@ -783,7 +782,7 @@ func (lx *Lexer) fetchTokenInCC() TokenType {
 	} else if c == '&' {
 		lx.fetchTokenInCCForAnd()
 	}
-	return token.typ
+	return token.Type
 }
 
 func (lx *Lexer) backrefRelToAbs(relNo int) int {
@@ -792,7 +791,7 @@ func (lx *Lexer) backrefRelToAbs(relNo int) int {
 
 func (lx *Lexer) fetchTokenForRepeat(lower, upper int) {
 	token := &lx.token
-	token.typ = TkOpRepeat
+	token.Type = TkOpRepeat
 	token.setRepeatLower(lower)
 	token.setRepeatUpper(upper)
 	lx.greedyCheck()
@@ -813,7 +812,7 @@ func (lx *Lexer) fetchTokenForOpenBrace() {
 }
 
 func (lx *Lexer) fetchTokenForAnchor(subType anchor.Type) {
-	lx.token.typ = TkAnchor
+	lx.token.Type = TkAnchor
 	lx.token.setAnchorSubtype(subType)
 }
 
@@ -839,7 +838,7 @@ func (lx *Lexer) fetchTokenForXBrace() {
 
 		if lx.p > last+enc.Length(lx.bytes, last, lx.stop) && lx.left() && lx.peekIs('}') {
 			lx.inc()
-			lx.token.typ = TkCodePoint
+			lx.token.Type = TkCodePoint
 			lx.token.setCode(num)
 		} else {
 			/* can't read nothing or invalid format */
@@ -853,7 +852,7 @@ func (lx *Lexer) fetchTokenForXBrace() {
 		if lx.p == last { /* can't read nothing. */
 			num = 0 /* but, it's not error */
 		}
-		lx.token.typ = TkRawByte
+		lx.token.Type = TkRawByte
 		lx.token.base = 16
 		lx.token.setC(num)
 	}
@@ -876,7 +875,7 @@ func (lx *Lexer) fetchTokenForUHex() {
 		if lx.p == last { /* can't read nothing. */
 			num = 0 /* but, it's not error */
 		}
-		lx.token.typ = TkCodePoint
+		lx.token.Type = TkCodePoint
 		lx.token.base = 16
 		lx.token.setCode(num)
 	}
@@ -896,7 +895,7 @@ func (lx *Lexer) fetchTokenForDigit() {
 					panic(newSyntaxException(err.InvalidBackref))
 				}
 			}
-			lx.token.typ = TkBackRef
+			lx.token.Type = TkBackRef
 			lx.token.setBackrefNum(1)
 			lx.token.setBackrefRef1(num)
 			lx.token.setBackrefByName(false)
@@ -932,7 +931,7 @@ func (lx *Lexer) fetchTokenForZero() {
 		if lx.p == last { /* can't read nothing. */
 			num = 0 /* but, it's not error */
 		}
-		lx.token.typ = TkRawByte
+		lx.token.Type = TkRawByte
 		lx.token.base = 8
 		lx.token.setC(num)
 	} else if lx.c != '0' {
@@ -993,7 +992,7 @@ func (lx *Lexer) fetchTokenForSubexpCall() {
 					gNum = lx.fetchName(lx.c, true)
 					nameEnd = lx.value
 				}
-				lx.token.typ = TkCall
+				lx.token.Type = TkCall
 				lx.token.setCallNameP(prev)
 				lx.token.setCallNameEnd(nameEnd)
 				lx.token.setCallGNum(gNum)
@@ -1035,7 +1034,7 @@ func (lx *Lexer) fetchNamedBackrefToken() {
 		if snx.IsBehavior(syntax.StrictCheckBackref) && (backNum > env.NumMem() || env.MemNodes() == nil) {
 			panic(newSyntaxException(err.InvalidBackref))
 		}
-		lx.token.typ = TkBackRef
+		lx.token.Type = TkBackRef
 		lx.token.setBackrefByName(false)
 		lx.token.setBackrefNum(1)
 		lx.token.setBackrefRef1(backNum)
@@ -1069,7 +1068,7 @@ func (lx *Lexer) fetchNamedBackrefToken() {
 			}
 		}
 
-		lx.token.typ = TkBackRef
+		lx.token.Type = TkBackRef
 		lx.token.setBackrefByName(true)
 
 		if backNum == 1 {
@@ -1086,7 +1085,7 @@ func (lx *Lexer) fetchTokenForCharProperty() {
 	snx := lx.syntax
 	if lx.peekIs('{') && snx.IsOp2(syntax.Op2EscPBraceCharProperty) {
 		lx.inc()
-		lx.token.typ = TkCharProperty
+		lx.token.Type = TkCharProperty
 		lx.token.setPropNot(lx.c == 'P')
 
 		if snx.IsOp2(syntax.Op2EscPBraceCircumflexNot) {
@@ -1106,7 +1105,7 @@ func (lx *Lexer) fetchTokenForMetaChars() {
 	metaCharTable := lx.syntax.MetaCharTable
 	c := lx.c
 	if c == metaCharTable.AnyChar {
-		lx.token.typ = TkAnyChar
+		lx.token.Type = TkAnyChar
 	} else if c == metaCharTable.AnyTime {
 		lx.fetchTokenForRepeat(0, ast.QuantifierRepeatInfinite)
 	} else if c == metaCharTable.ZeroOrOneTime {
@@ -1114,7 +1113,7 @@ func (lx *Lexer) fetchTokenForMetaChars() {
 	} else if c == metaCharTable.OneOrMoreTime {
 		lx.fetchTokenForRepeat(1, ast.QuantifierRepeatInfinite)
 	} else if c == metaCharTable.AnyCharAnyTime {
-		lx.token.typ = TkAnycharAnytime
+		lx.token.Type = TkAnycharAnytime
 	}
 }
 
@@ -1129,11 +1128,11 @@ func (lx *Lexer) fetchToken() {
 start:
 	for {
 		if !lx.left() {
-			lx.token.typ = TkEOT
+			lx.token.Type = TkEOT
 			return
 		}
 
-		lx.token.typ = TkString
+		lx.token.Type = TkString
 		lx.token.base = 0
 		lx.token.backP = lx.p
 
@@ -1169,15 +1168,15 @@ start:
 				}
 			case '|':
 				if snx.IsOp(syntax.OpEscVBarAlt) {
-					lx.token.typ = TkAlt
+					lx.token.Type = TkAlt
 				}
 			case '(':
 				if snx.IsOp(syntax.OpEscLParenSubexp) {
-					lx.token.typ = TkSubexpOpen
+					lx.token.Type = TkSubexpOpen
 				}
 			case ')':
 				if snx.IsOp(syntax.OpEscLParenSubexp) {
-					lx.token.typ = TkSubexpClose
+					lx.token.Type = TkSubexpClose
 				}
 			case 'w':
 				if snx.IsOp(syntax.OpEscWWord) {
@@ -1271,27 +1270,27 @@ start:
 				lx.fetchTokenForSubexpCall()
 			case 'Q':
 				if snx.IsOp2(syntax.Op2EscCapitalQQuote) {
-					lx.token.typ = TkQuoteOpen
+					lx.token.Type = TkQuoteOpen
 				}
 			case 'p', 'P':
 				lx.fetchTokenForCharProperty()
 			case 'R':
 				if snx.IsOp2(syntax.Op2EscCapitalRLinebreak) {
-					lx.token.typ = TkLineBreak
+					lx.token.Type = TkLineBreak
 				}
 			case 'X':
 				if snx.IsOp2(syntax.Op2EscCapitalXExtendedGraphemeCluster) {
-					lx.token.typ = TkExtendedGraphemeCluster
+					lx.token.Type = TkExtendedGraphemeCluster
 				}
 			case 'K':
 				if snx.IsOp2(syntax.Op2EscCapitalKKeep) {
-					lx.token.typ = TkKeep
+					lx.token.Type = TkKeep
 				}
 			default:
 				lx.unfetch()
 				lx.fetchEscapedValue()
 				if lx.token.getC() != lx.c { /* set_raw: */
-					lx.token.typ = TkCodePoint
+					lx.token.Type = TkCodePoint
 					lx.token.setCode(lx.c)
 				} else { /* string */
 					lx.p = lx.token.backP + lx.enc.Length(lx.bytes, lx.token.backP, lx.stop)
@@ -1311,7 +1310,7 @@ start:
 			switch lx.c {
 			case '.':
 				if snx.IsOp(syntax.OpDotAnyChar) {
-					lx.token.typ = TkAnyChar
+					lx.token.Type = TkAnyChar
 				}
 			case '*':
 				if snx.IsOp(syntax.OpAsteriskZeroInf) {
@@ -1331,7 +1330,7 @@ start:
 				}
 			case '|':
 				if snx.IsOp(syntax.OpVBarAlt) {
-					lx.token.typ = TkAlt
+					lx.token.Type = TkAlt
 				}
 			case '(':
 				if lx.peekIs('?') && snx.IsOp2(syntax.Op2QMarkGroupEffect) {
@@ -1359,11 +1358,11 @@ start:
 				}
 
 				if snx.IsOp(syntax.OpLParenSubexp) {
-					lx.token.typ = TkSubexpOpen
+					lx.token.Type = TkSubexpOpen
 				}
 			case ')':
 				if snx.IsOp(syntax.OpLParenSubexp) {
-					lx.token.typ = TkSubexpClose
+					lx.token.Type = TkSubexpClose
 				}
 			case '^':
 				if snx.IsOp(syntax.OpLineAnchor) {
@@ -1387,7 +1386,7 @@ start:
 				}
 			case '[':
 				if snx.IsOp(syntax.OpBracketCC) {
-					lx.token.typ = TkCcOpen
+					lx.token.Type = TkCcOpen
 				}
 			case ']':
 				if src > lx.begin { /* /].../ is allowed. */
@@ -1427,8 +1426,8 @@ func (lx *Lexer) greedyCheck() {
 func (lx *Lexer) possessiveCheck() {
 	token := &lx.token
 	if lx.left() && lx.peekIs('+') &&
-		(lx.syntax.IsOp2(syntax.Op2PlusPossessiveRepeat) && token.typ != TkInterval ||
-			lx.syntax.IsOp2(syntax.Op2PlusPossessiveInterval) && token.typ == TkInterval) {
+		(lx.syntax.IsOp2(syntax.Op2PlusPossessiveRepeat) && token.Type != TkInterval ||
+			lx.syntax.IsOp2(syntax.Op2PlusPossessiveInterval) && token.Type == TkInterval) {
 
 		lx.fetch()
 

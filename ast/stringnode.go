@@ -10,6 +10,7 @@ import (
 type StringNode struct {
 	abstractNode
 	bytes []byte
+	start int
 	flag  int
 }
 
@@ -33,8 +34,8 @@ func NewStringNode() *StringNode {
 	return &StringNode{abstractNode: abstractNode{nodeType: node.Str}, bytes: make([]byte, 0, nodeStrBufSize)}
 }
 
-func NewStringNodeShared(bytes []byte) *StringNode {
-	s := &StringNode{abstractNode: abstractNode{nodeType: node.Str}, bytes: bytes}
+func NewStringNodeShared(bytes []byte, start int) *StringNode {
+	s := &StringNode{abstractNode: abstractNode{nodeType: node.Str}, bytes: bytes, start: start}
 	s.SetShared()
 	return s
 }
@@ -85,8 +86,16 @@ func (sn *StringNode) AppendTo(w *util.Indenter) {
 	w.Append("'")
 }
 
+func (sn *StringNode) Start() int {
+	return sn.start
+}
+
 func (sn *StringNode) End() int {
-	return len(sn.bytes)
+	return sn.start + len(sn.bytes)
+}
+
+func (sn *StringNode) SetEnd(p int) {
+	sn.bytes = sn.bytes[:p-sn.start]
 }
 
 func (sn *StringNode) Name() string {
@@ -95,6 +104,14 @@ func (sn *StringNode) Name() string {
 
 func (sn *StringNode) CatCode(code int, enc goni.Encoding) {
 	sn.bytes = enc.CodeToMbc(code, sn.bytes);
+}
+
+func (sn *StringNode) CatByte(b byte) {
+	sn.bytes = append(sn.bytes, b)
+}
+
+func (sn *StringNode) CatBytes(bytes []byte) {
+	sn.bytes = append(sn.bytes, bytes...)
 }
 
 func (sn *StringNode) ClearAmbig() {

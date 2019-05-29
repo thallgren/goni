@@ -849,10 +849,10 @@ func (px *Parser) parseExp(term TokenType) goni.Node {
 
 func (px *Parser) parseLineBreak() goni.Node {
 	enc := px.enc
-	buflb := make([]byte, config.EncCodeToMbcMaxlen*2)
-	len1 := enc.CodeToMbc(0x0D, buflb, 0)
-	len2 := enc.CodeToMbc(0x0A, buflb, len1)
-	left := ast.NewStringNodeShared(buflb[:len1+len2])
+	buflb := make([]byte, 0, config.EncCodeToMbcMaxlen*2)
+	buflb = enc.CodeToMbc(0x0D, buflb)
+	buflb = enc.CodeToMbc(0x0A, buflb)
+	left := ast.NewStringNodeShared(buflb, 0)
 	left.SetRaw()
 	/* [\x0A-\x0D] or [\x0A-\x0D\x{85}\x{2028}\x{2029}] */
 	right := ast.NewCClassNode()
@@ -1070,27 +1070,58 @@ func (px *Parser) parseExtendedGraphemeCluster() goni.Node {
 }
 
 func (px *Parser) parseExpTkByte(group bool) goni.Node {
-	nd := ast.NewStringNodeShared(px.bytes[px.token.backP:px.p]); // tk_byte:
+	backP := px.token.backP
+	nd := ast.NewStringNodeShared(px.bytes[backP:px.p], backP); // tk_byte:
 	return px.parseStringLoop(nd, group);
 }
 
-func (px *Parser) parseStringLoop(node *ast.StringNode, group bool) {
+func (px *Parser) parseStringLoop(node *ast.StringNode, group bool) goni.Node {
+	enc := px.enc
 	for {
 		px.fetchToken();
 		if (px.token.Type == TkString) {
-			if (px.token.backP == node.end()) {
-				node.end = p; // non escaped character, remain shared, just increase shared range
+			if (px.token.backP == node.End()) {
+				node.SetEnd(px.p) // non escaped character, remain shared, just increase shared range
 			} else {
-				node.catBytes(bytes, px.token.backP, p); // non continuous string stream, need to COW
+				node.CatBytes(px.bytes[px.token.backP:px.p]) // non continuous string stream, need to COW
 			}
-		} else if (px.token.type == TokenType.CODE_POINT) {
-			node.catCode(px.token.getCode(), enc);
+		} else if (px.token.Type == TkCodePoint) {
+			node.CatCode(px.token.getCode(), enc);
 		} else {
 			break;
 		}
 	}
 	// targetp = node;
 	return px.parseExpRepeat(node, group); // string_end:, goto repeat
+}
+
+func (px *Parser) parseExpTkRawByte(group bool) goni.Node {
+// tk_raw_byte:
+node := ast.NewStringNode();
+node.SetRaw();
+node.CatByte(byte(px.token.getC()))
+
+len := 1;
+enc := px.enc
+for {
+if (len >= enc.MinLength()) {
+if (len == enc.Length(node.bytes, 0, len(node.bytes)) {
+fetchToken();
+node.clearRaw();
+// !goto string_end;!
+return parseExpRepeat(node, group);
+}
+}
+
+fetchToken();
+if (token.type != TokenType.RAW_BYTE) {
+/* Don't use this, it is wrong for little endian encodings. */
+// USE_PAD_TO_SHORT_BYTE_CHAR ...
+newValueException(TOO_SHORT_MULTI_BYTE_STRING);
+}
+node.catByte((byte)token.getC());
+len++;
+} // while
 }
 
 
